@@ -6,8 +6,9 @@
 
 - PDF / PPT / 图片资料摄取
 - ONNX Runtime 本地 embedding，默认 `intfloat/multilingual-e5-small`
-- OpenAI-compatible Chat / Vision API，当前配置为讯飞 `astron-code-latest`
+- OpenAI-compatible Chat / Vision API
 - Chroma 向量库 + BM25 稀疏索引
+- LLM rerank：复用 Chat API 对检索候选片段进行轻量重排
 - Web 前端：资料库、知识问答、复习计划、运行状态
 - FastAPI 后端：`/docs` 提供接口调试页面
 
@@ -64,11 +65,9 @@ config/settings.yaml
 当前默认：
 
 - `llm.provider = openai`
-- `llm.model = astron-code-latest`
-- `llm.base_url = https://maas-coding-api.cn-huabei-1.xf-yun.com/v2`
-- `vision_llm.enabled = true`
 - `embedding.provider = onnx`
 - `embedding.model = intfloat/multilingual-e5-small`
+- `rerank.provider = llm`
 
 不要把 API Key 写进仓库。部署服务器上设置环境变量：
 
