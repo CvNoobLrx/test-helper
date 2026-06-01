@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
+import re
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -40,8 +41,46 @@ def _get_kp_index(collection: str):
     return KnowledgePointIndex(index_dir=str(resolve_path("data/db/knowledge_points")))
 
 
+def _kp_text(kp: dict) -> str:
+    return str(kp.get("text") or kp.get("content") or "").strip()
+
+
+def _normalize_kp_text(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
+
+
+def _dedupe_knowledge_points(kps: List[dict]) -> List[dict]:
+    by_text: Dict[str, dict] = {}
+    for kp in kps:
+        text = _kp_text(kp)
+        if len(text) < 4:
+            continue
+        key = _normalize_kp_text(text)
+        existing = by_text.get(key)
+        if existing is None or int(kp.get("importance", 0) or 0) > int(existing.get("importance", 0) or 0):
+            item = {**kp, "text": text, "content": text}
+            by_text[key] = item
+    return sorted(
+        by_text.values(),
+        key=lambda item: int(item.get("importance", 0) or 0),
+        reverse=True,
+    )
+
+
+def _sync_mastery_records(collection: str) -> None:
+    idx = _get_kp_index(collection)
+    store = _get_mastery_store(collection)
+    from src.core.types import MasteryRecord
+
+    for kp in _dedupe_knowledge_points(idx.get_by_collection(collection)):
+        kp_id = kp.get("id")
+        if kp_id and store.get_record(kp_id, collection) is None:
+            store.update_record(MasteryRecord(knowledge_point_id=kp_id, collection=collection))
+
+
 @router.get("/mastery")
 async def get_mastery(collection: str = "default"):
+    _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
     stats = store.get_stats(collection)
     return {"collection": collection, "stats": stats}
@@ -50,15 +89,32 @@ async def get_mastery(collection: str = "default"):
 @router.get("/knowledge-points")
 async def list_knowledge_points(collection: str = "default"):
     idx = _get_kp_index(collection)
-    return {"knowledge_points": idx.get_by_collection(collection)}
+    kps = _dedupe_knowledge_points(idx.get_by_collection(collection))
+    return {"knowledge_points": kps}
 
 
 @router.get("/review-plan")
 async def get_review_plan(collection: str = "default", max_items: int = 10):
+    _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
+    idx = _get_kp_index(collection)
+    kps_by_id = {
+        kp.get("id"): kp
+        for kp in _dedupe_knowledge_points(idx.get_by_collection(collection))
+    }
     due = store.get_due_items(collection)[:max_items]
     from dataclasses import asdict
-    return {"review_items": [asdict(item) for item in due]}
+    review_items = []
+    for item in due:
+        data = asdict(item)
+        kp = kps_by_id.get(item.knowledge_point_id, {})
+        data["content"] = _kp_text(kp) or item.knowledge_point_id
+        data["category"] = kp.get("category", "")
+        data["importance"] = kp.get("importance", 0)
+        data["source_ref"] = kp.get("source_ref", "")
+        data["chunk_id"] = kp.get("chunk_id", "")
+        review_items.append(data)
+    return {"review_items": review_items}
 
 
 @router.post("/quiz/generate")
@@ -72,7 +128,8 @@ async def generate_quiz(req: QuizRequest):
     prompt_path = resolve_path("config/prompts/quiz_generation.txt")
     prompt_template = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
 
-    kp_text = "\n".join(f"- {kp.content}" for kp in kps[:20])
+    kps = _dedupe_knowledge_points(kps)
+    kp_text = "\n".join(f"- {_kp_text(kp)}" for kp in kps[:20])
     prompt = prompt_template.replace("{{knowledge_points}}", kp_text)
     prompt = prompt.replace("{{num_questions}}", str(req.num_questions))
     prompt = prompt.replace("{{difficulty}}", req.difficulty)
@@ -118,6 +175,7 @@ async def submit_review(req: ReviewSubmitRequest):
 
 @router.get("/stats")
 async def get_stats(collection: str = "default"):
+    _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
     stats = store.get_stats(collection)
     return {"collection": collection, **stats}

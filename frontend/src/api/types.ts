@@ -73,10 +73,13 @@ export interface Trace {
 
 export interface KnowledgePoint {
   id: string;
-  content: string;
+  text?: string;
+  content?: string;
   category: string;
-  importance: string;
+  importance: string | number;
   source_chunk_id?: string;
+  source_ref?: string;
+  chunk_id?: string;
 }
 
 export interface MasteryStats {
@@ -89,10 +92,15 @@ export interface MasteryStats {
 export interface ReviewItem {
   knowledge_point_id: string;
   content: string;
+  category?: string;
+  importance?: string | number;
+  source_ref?: string;
+  chunk_id?: string;
   interval_days: number;
   ease_factor: number;
   last_quality?: number;
-  next_review_at: string;
+  next_review_at?: string;
+  next_review_time?: string;
 }
 
 export interface QuizQuestion {

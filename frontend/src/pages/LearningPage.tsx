@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { KnowledgePoint, MasteryStats, QuizQuestion, ReviewItem } from "../api/types";
-import { BookOpen, Brain, HelpCircle } from "lucide-react";
+import { BookOpen, Brain, ChevronDown, HelpCircle } from "lucide-react";
 import { useAppStore } from "../stores/appStore";
 
 type Tab = "overview" | "review" | "quiz";
@@ -45,17 +45,18 @@ export function LearningPage() {
         ))}
       </div>
 
-      {tab === "overview" && <OverviewTab collection={collection} />}
+      {tab === "overview" && <OverviewTab collection={collection} onStartReview={() => setTab("review")} />}
       {tab === "review" && <ReviewTab collection={collection} />}
       {tab === "quiz" && <QuizTab collection={collection} />}
     </div>
   );
 }
 
-function OverviewTab({ collection }: { collection: string }) {
+function OverviewTab({ collection, onStartReview }: { collection: string; onStartReview: () => void }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data: statsData } = useQuery({
     queryKey: ["mastery", collection],
-    queryFn: () => api.get<{ stats: MasteryStats }>(`/learning/stats?collection=${collection}`),
+    queryFn: () => api.get<{ stats: MasteryStats }>(`/learning/mastery?collection=${collection}`),
   });
 
   const { data: kpsData } = useQuery({
@@ -65,6 +66,7 @@ function OverviewTab({ collection }: { collection: string }) {
 
   const stats = statsData?.stats;
   const kps = kpsData?.knowledge_points || [];
+  const selected = kps.find((kp) => kp.id === expandedId);
 
   return (
     <div className="space-y-6">
@@ -90,17 +92,55 @@ function OverviewTab({ collection }: { collection: string }) {
       )}
 
       <div className="bg-white rounded-xl border p-6">
-        <h2 className="text-lg font-semibold mb-4">Knowledge Points ({kps.length})</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">知识点清单 ({kps.length})</h2>
+          <span className="text-xs text-gray-500">点击知识点查看详情，或加入复习</span>
+        </div>
         {kps.length === 0 ? (
           <p className="text-gray-500 text-sm">No knowledge points extracted yet.</p>
         ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
           <div className="space-y-2 max-h-96 overflow-auto">
             {kps.map((kp) => (
-              <div key={kp.id} className="p-3 bg-gray-50 rounded-lg">
-                <div className="text-sm">{kp.content}</div>
-                <div className="text-xs text-gray-500 mt-1">{kp.category} · {kp.importance}</div>
-              </div>
+              <button
+                key={kp.id}
+                onClick={() => setExpandedId((id) => (id === kp.id ? null : kp.id))}
+                className={`w-full rounded-lg p-3 text-left ${
+                  expandedId === kp.id ? "bg-blue-50 ring-1 ring-blue-200" : "bg-gray-50 hover:bg-gray-100"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-medium text-gray-900">{kp.content || kp.text}</div>
+                  <ChevronDown size={16} className="mt-0.5 shrink-0 text-gray-400" />
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {kp.category || "知识点"} · 重要度 {kp.importance ?? 3}
+                </div>
+              </button>
             ))}
+          </div>
+          <div className="rounded-lg border bg-gray-50 p-4">
+            {selected ? (
+              <div>
+                <div className="text-xs text-gray-500 mb-2">知识点详情</div>
+                <div className="text-sm font-medium text-gray-900 leading-6">{selected.content || selected.text}</div>
+                <div className="mt-3 space-y-1 text-xs text-gray-500">
+                  <div>类型：{selected.category || "知识点"}</div>
+                  <div>重要度：{selected.importance ?? 3}</div>
+                  {selected.source_ref && <div className="break-all">来源：{selected.source_ref}</div>}
+                  {selected.chunk_id && <div className="break-all">片段：{selected.chunk_id}</div>}
+                </div>
+                <button
+                  onClick={onStartReview}
+                  className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  去 Review 复习
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">选择左侧知识点查看来源、重要度，并把它加入复习队列。</p>
+            )}
+          </div>
           </div>
         )}
       </div>
@@ -148,7 +188,10 @@ function ReviewTab({ collection }: { collection: string }) {
         <div className="text-sm text-gray-500 mb-2">
           {currentIndex + 1} / {items.length}
         </div>
-        <div className="text-lg mb-6">{current?.content || "Loading..."}</div>
+        <div className="text-lg mb-2">{current?.content || "Loading..."}</div>
+        <div className="text-xs text-gray-500 mb-6">
+          {current?.category || "知识点"} · 间隔 {current?.interval_days || 1} 天
+        </div>
 
         {!submitted ? (
           <div>
