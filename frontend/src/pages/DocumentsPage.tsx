@@ -1,13 +1,16 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, uploadFile } from "../api/client";
+import { useAppStore } from "../stores/appStore";
 import type { Document, IngestionProgress, PipelineResult } from "../api/types";
 import { Upload, Trash2, File } from "lucide-react";
 
 export function DocumentsPage() {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [collection, setCollection] = useState("default");
+  const selectedCollection = useAppStore((s) => s.selectedCollection);
+  const setSelectedCollection = useAppStore((s) => s.setCollection);
+  const [collection, setCollection] = useState(selectedCollection);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState<IngestionProgress | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
@@ -37,7 +40,9 @@ export function DocumentsPage() {
       (e) => { setResult({ success: false, error: e } as PipelineResult); setUploading(false); }
     );
 
+    setSelectedCollection(collection.trim() || "default");
     queryClient.invalidateQueries({ queryKey: ["documents"] });
+    queryClient.invalidateQueries({ queryKey: ["collections"] });
   };
 
   const documents = docsData?.documents || [];
@@ -60,6 +65,7 @@ export function DocumentsPage() {
             type="text"
             value={collection}
             onChange={(e) => setCollection(e.target.value)}
+            onBlur={() => setSelectedCollection(collection.trim() || "default")}
             placeholder="Collection"
             className="px-3 py-2 border rounded-lg text-sm w-40"
           />

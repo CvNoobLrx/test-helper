@@ -1,5 +1,9 @@
 export interface Collection {
   name: string;
+  collection?: string;
+  chunk_count?: number;
+  document_count?: number;
+  image_count?: number;
   total_chunks?: number;
   total_documents?: number;
   total_images?: number;

@@ -15,8 +15,8 @@ export function DashboardPage() {
   });
 
   const collections = collectionsData?.collections || [];
-  const totalChunks = collections.reduce((sum, c) => sum + (c.total_chunks || 0), 0);
-  const totalDocs = collections.reduce((sum, c) => sum + (c.total_documents || 0), 0);
+  const totalChunks = collections.reduce((sum, c) => sum + (c.total_chunks || c.chunk_count || 0), 0);
+  const totalDocs = collections.reduce((sum, c) => sum + (c.total_documents || c.document_count || 0), 0);
 
   return (
     <div className="p-8">
@@ -39,7 +39,7 @@ export function DashboardPage() {
               {collections.map((c) => (
                 <div key={c.name} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                   <span className="font-medium">{c.name}</span>
-                  <span className="text-sm text-gray-500">{c.total_chunks || 0} 个片段</span>
+                  <span className="text-sm text-gray-500">{c.total_chunks || c.chunk_count || 0} 个片段</span>
                 </div>
               ))}
             </div>

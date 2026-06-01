@@ -1,50 +1,92 @@
 import { useState, useRef, useEffect } from "react";
 import { useChatStore } from "../stores/chatStore";
 import { useAppStore } from "../stores/appStore";
-import { streamQuery } from "../api/client";
+import { api, streamQuery } from "../api/client";
 import { Send, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Citation } from "../api/types";
+import type { Citation, Collection } from "../api/types";
+import { useQuery } from "@tanstack/react-query";
 
 export function ChatPage() {
   const [input, setInput] = useState("");
+  const [status, setStatus] = useState("");
+  const [collectionDraft, setCollectionDraft] = useState("");
   const { messages, isStreaming, addMessage, updateLastAssistant, finalizeLastAssistant, setStreaming, clear } = useChatStore();
   const collection = useAppStore((s) => s.selectedCollection);
+  const setCollection = useAppStore((s) => s.setCollection);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { data: collectionsData } = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => api.get<{ collections: Collection[] }>("/collections"),
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    setCollectionDraft(collection);
+  }, [collection]);
+
   const handleSend = async () => {
     const query = input.trim();
     if (!query || isStreaming) return;
+    const activeCollection = collectionDraft.trim() || "default";
+    setCollection(activeCollection);
 
     setInput("");
     addMessage({ id: crypto.randomUUID(), role: "user", content: query });
     addMessage({ id: crypto.randomUUID(), role: "assistant", content: "", isStreaming: true });
     setStreaming(true);
+    setStatus("正在检索资料库...");
 
-    await streamQuery(
-      query,
-      collection,
-      5,
-      () => {},
-      (text) => updateLastAssistant(text),
-      (data) => finalizeLastAssistant((data.citations || []) as Citation[]),
-      (err) => {
-        updateLastAssistant(`Error: ${err}`);
-        finalizeLastAssistant([]);
-      }
-    );
+    try {
+      await streamQuery(
+        query,
+        activeCollection,
+        5,
+        (stage) => setStatus(stage.message || stage.stage),
+        (text) => updateLastAssistant(text),
+        (data) => {
+          finalizeLastAssistant((data.citations || []) as Citation[]);
+          setStatus("");
+        },
+        (err) => {
+          updateLastAssistant(`Error: ${err}`);
+          finalizeLastAssistant([]);
+          setStatus("");
+        }
+      );
+    } finally {
+      setStreaming(false);
+    }
   };
 
   return (
     <div className="flex flex-col h-screen">
       <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
-        <h1 className="text-lg font-semibold">知识问答</h1>
-        <button onClick={clear} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+        <div>
+          <h1 className="text-lg font-semibold">知识问答</h1>
+          <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+            <span>资料库</span>
+            <input
+              list="chat-collections"
+              value={collectionDraft}
+              onChange={(e) => setCollectionDraft(e.target.value)}
+              onBlur={() => setCollection(collectionDraft.trim() || "default")}
+              className="h-7 w-44 rounded border px-2 text-xs text-gray-700"
+              disabled={isStreaming}
+            />
+            <datalist id="chat-collections">
+              {(collectionsData?.collections || []).map((c) => (
+                <option key={c.name} value={c.name} />
+              ))}
+            </datalist>
+            {status && <span>{status}</span>}
+          </div>
+        </div>
+        <button title="清空对话" onClick={clear} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
           <Trash2 size={16} />
         </button>
       </div>
@@ -53,7 +95,7 @@ export function ChatPage() {
         {messages.length === 0 && (
           <div className="text-center text-gray-400 mt-20">
             <p className="text-lg">向期末复习资料提问</p>
-            <p className="text-sm mt-1">当前资料库：{collection}</p>
+            <p className="text-sm mt-1">当前资料库：{collectionDraft || collection}</p>
           </div>
         )}
 

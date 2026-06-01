@@ -19,6 +19,28 @@ class QueryRequest(BaseModel):
     enable_rerank: bool = True
 
 
+def _citation_to_dict(citation, index: int) -> dict:
+    if hasattr(citation, "to_dict"):
+        data = citation.to_dict()
+    elif isinstance(citation, dict):
+        data = citation
+    else:
+        data = {
+            "index": getattr(citation, "index", index + 1),
+            "source": getattr(citation, "source", ""),
+            "score": getattr(citation, "score", 0),
+            "text_snippet": getattr(citation, "text_snippet", ""),
+        }
+
+    return {
+        "index": data.get("index", index + 1),
+        "source": data.get("source", ""),
+        "score": data.get("score", 0),
+        "text_snippet": data.get("text_snippet", data.get("text", ""))[:200],
+        **({"page": data["page"]} if data.get("page") is not None else {}),
+    }
+
+
 @router.post("")
 async def query_knowledge(req: QueryRequest):
     """Non-streaming RAG query."""
@@ -37,12 +59,7 @@ async def query_knowledge(req: QueryRequest):
     return {
         "answer": response.content,
         "citations": [
-            {
-                "index": c.get("index", i + 1),
-                "source": c.get("source", ""),
-                "score": c.get("score", 0),
-                "text_snippet": c.get("text", "")[:200],
-            }
+            _citation_to_dict(c, i)
             for i, c in enumerate(response.citations)
         ],
         "metadata": response.metadata,
@@ -76,12 +93,7 @@ async def query_stream(req: QueryRequest):
 
             yield sse_event("done", {
                 "citations": [
-                    {
-                        "index": c.get("index", i + 1),
-                        "source": c.get("source", ""),
-                        "score": c.get("score", 0),
-                        "text_snippet": c.get("text", "")[:200],
-                    }
+                    _citation_to_dict(c, i)
                     for i, c in enumerate(response.citations)
                 ],
                 "metadata": response.metadata,

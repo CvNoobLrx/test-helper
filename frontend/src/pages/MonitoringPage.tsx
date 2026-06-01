@@ -39,7 +39,7 @@ export function MonitoringPage() {
 
 function TracesTab() {
   const [filter, setFilter] = useState<string>("");
-  const { data } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["traces", filter],
     queryFn: () =>
       api.get<{ traces: Trace[] }>(
@@ -51,7 +51,8 @@ function TracesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-2">
         {["", "query", "ingestion"].map((t) => (
           <button
             key={t}
@@ -63,11 +64,26 @@ function TracesTab() {
             {t || "All"}
           </button>
         ))}
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="rounded-lg border bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+        >
+          {isFetching ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
+      {isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error instanceof Error ? error.message : "Failed to load traces"}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border">
-        {traces.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No traces found</div>
+        {isLoading ? (
+          <div className="p-8 text-center text-gray-500">Loading traces...</div>
+        ) : traces.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">No traces found. Run an upload or query, then refresh.</div>
         ) : (
           <div className="divide-y max-h-[600px] overflow-auto">
             {traces.map((trace) => (
@@ -139,7 +155,7 @@ function TraceRow({ trace }: { trace: Trace }) {
 }
 
 function ConfigTab() {
-  const { data } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["config"],
     queryFn: () => api.get<{ components: ComponentInfo[] }>("/monitoring/config"),
   });
@@ -147,8 +163,26 @@ function ConfigTab() {
   const components = data?.components || [];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {components.map((c) => (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button
+          onClick={() => refetch()}
+          className="rounded-lg border bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
+        >
+          {isFetching ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
+      {isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error instanceof Error ? error.message : "Failed to load config"}
+        </div>
+      )}
+      {isLoading && <div className="rounded-xl border bg-white p-8 text-center text-gray-500">Loading config...</div>}
+      {!isLoading && components.length === 0 && (
+        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">No component config returned.</div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {components.map((c) => (
         <div key={c.name} className="bg-white rounded-xl border p-5">
           <div className="flex items-center gap-2 mb-3">
             <Settings size={16} className="text-gray-400" />
@@ -171,7 +205,8 @@ function ConfigTab() {
             ))}
           </div>
         </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

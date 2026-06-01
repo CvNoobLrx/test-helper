@@ -3,16 +3,28 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { KnowledgePoint, MasteryStats, QuizQuestion, ReviewItem } from "../api/types";
 import { BookOpen, Brain, HelpCircle } from "lucide-react";
+import { useAppStore } from "../stores/appStore";
 
 type Tab = "overview" | "review" | "quiz";
 
 export function LearningPage() {
   const [tab, setTab] = useState<Tab>("overview");
-  const [collection] = useState("default");
+  const collection = useAppStore((s) => s.selectedCollection);
+  const setCollection = useAppStore((s) => s.setCollection);
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Learning</h1>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-gray-900">复习计划</h1>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          资料库
+          <input
+            value={collection}
+            onChange={(e) => setCollection(e.target.value || "default")}
+            className="w-44 rounded-lg border px-3 py-2 text-sm text-gray-800"
+          />
+        </label>
+      </div>
 
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
         {([

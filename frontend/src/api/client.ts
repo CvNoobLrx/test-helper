@@ -6,7 +6,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(body || `API error: ${res.status} ${res.statusText}`);
   }
   return res.json();
 }
@@ -40,33 +41,67 @@ export async function uploadFile(
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          const event = line.slice(7).trim();
-          const dataLine = lines[lines.indexOf(line) + 1];
-          if (dataLine?.startsWith("data: ")) {
-            const data = JSON.parse(dataLine.slice(6));
-            if (event === "progress") onProgress(data);
-            else if (event === "complete") onComplete(data);
-            else if (event === "error") onError(data.error);
-          }
-        }
-      }
-    }
+    await readSse(res.body, (event, data) => {
+      if (event === "progress") onProgress(data);
+      else if (event === "complete") onComplete(data);
+      else if (event === "error") onError(data.error);
+    });
   } catch (err) {
     onError(String(err));
+  }
+}
+
+async function readSse(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: string, data: any) => void
+) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() || "";
+
+    for (const rawEvent of events) {
+      const lines = rawEvent.split(/\r?\n/);
+      const eventLine = lines.find((line) => line.startsWith("event:"));
+      const dataLines = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart());
+
+      if (!eventLine || dataLines.length === 0) continue;
+
+      const event = eventLine.slice(6).trim();
+      const dataText = dataLines.join("\n");
+      try {
+        onEvent(event, JSON.parse(dataText));
+      } catch {
+        onEvent(event, dataText);
+      }
+    }
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    const lines = buffer.split(/\r?\n/);
+    const eventLine = lines.find((line) => line.startsWith("event:"));
+    const dataLines = lines
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart());
+    if (eventLine && dataLines.length > 0) {
+      const event = eventLine.slice(6).trim();
+      const dataText = dataLines.join("\n");
+      try {
+        onEvent(event, JSON.parse(dataText));
+      } catch {
+        onEvent(event, dataText);
+      }
+    }
   }
 }
 
@@ -91,32 +126,12 @@ export async function streamQuery(
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          const event = line.slice(7).trim();
-          const dataLine = lines[lines.indexOf(line) + 1];
-          if (dataLine?.startsWith("data: ")) {
-            const data = JSON.parse(dataLine.slice(6));
-            if (event === "stage") onStage(data);
-            else if (event === "token") onToken(data.text);
-            else if (event === "done") onDone(data);
-            else if (event === "error") onError(data.error);
-          }
-        }
-      }
-    }
+    await readSse(res.body, (event, data) => {
+      if (event === "stage") onStage(data);
+      else if (event === "token") onToken(data.text);
+      else if (event === "done") onDone(data);
+      else if (event === "error") onError(data.error);
+    });
   } catch (err) {
     onError(String(err));
   }
