@@ -72,10 +72,10 @@ async def upload_document(
 
         def event_stream():
             stages = []
-            def on_progress(stage_name: str, current: int, total: int):
-                stages.append({"stage": stage_name, "current": current, "total": total})
-
             try:
+                def on_progress(stage_name: str, current: int, total: int):
+                    stages.append({"stage": stage_name, "current": current, "total": total})
+
                 from src.ingestion.pipeline import IngestionPipeline
                 settings = get_settings()
                 pipeline = IngestionPipeline(settings, collection=collection)
@@ -88,12 +88,16 @@ async def upload_document(
                 yield sse_event("complete", result.to_dict())
             except Exception as exc:
                 yield sse_event("error", {"error": str(exc)})
+            finally:
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
     except Exception as exc:
-        return {"error": str(exc)}
-    finally:
         try:
             Path(tmp.name).unlink(missing_ok=True)
         except Exception:
             pass
+        return {"error": str(exc)}
