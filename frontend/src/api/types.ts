@@ -26,6 +26,7 @@ export interface Chunk {
 
 export interface Citation {
   index: number;
+  chunk_id?: string;
   source: string;
   score: number;
   text_snippet: string;

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from src.api.dependencies import get_data_service, get_settings
 from src.api.streaming import sse_event
+from src.core.settings import resolve_path
 
 router = APIRouter()
 
@@ -62,13 +59,17 @@ async def upload_document(
 ):
     """Upload a file and run ingestion. Returns SSE stream of progress events."""
     suffix = Path(file.filename).suffix
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    original_name = Path(file.filename or f"upload{suffix}").name
+    safe_name = "".join(ch if ch.isalnum() or ch in "._- ()[]" else "_" for ch in original_name)
+    if not safe_name:
+        safe_name = f"upload{suffix or '.dat'}"
+    upload_dir = resolve_path(f"data/uploads/{collection}")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_dir / safe_name
     try:
         content = await file.read()
-        tmp.write(content)
-        tmp.flush()
-        tmp.close()
-        file_path = tmp.name
+        upload_path.write_bytes(content)
+        file_path = str(upload_path)
 
         def event_stream():
             stages = []
@@ -88,16 +89,7 @@ async def upload_document(
                 yield sse_event("complete", result.to_dict())
             except Exception as exc:
                 yield sse_event("error", {"error": str(exc)})
-            finally:
-                try:
-                    Path(file_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
     except Exception as exc:
-        try:
-            Path(tmp.name).unlink(missing_ok=True)
-        except Exception:
-            pass
         return {"error": str(exc)}

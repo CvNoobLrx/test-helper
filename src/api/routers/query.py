@@ -34,6 +34,7 @@ def _citation_to_dict(citation, index: int) -> dict:
 
     return {
         "index": data.get("index", index + 1),
+        "chunk_id": data.get("chunk_id", ""),
         "source": data.get("source", ""),
         "score": data.get("score", 0),
         "text_snippet": data.get("text_snippet", data.get("text", ""))[:200],

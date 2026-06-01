@@ -253,22 +253,46 @@ export function ChatPage() {
                             <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500" />
                           </div>
                         )}
-                        {msg.citations && msg.citations.length > 0 && (
-                          <div className="mt-3 border-t border-gray-100 pt-2">
-                            <div className="mb-1 text-xs font-medium text-gray-500">引用来源</div>
-                            <div className="flex flex-wrap gap-1">
-                              {msg.citations.map((c, i) => (
-                                <span
-                                  key={i}
-                                  className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700"
-                                  title={`${c.source} (score: ${Number(c.score || 0).toFixed(3)})`}
-                                >
-                                  [{c.index}]
-                                </span>
-                              ))}
+                        {(() => {
+                          const validCitations = (msg.citations || []).filter(
+                            (c) => c.source || c.text_snippet || c.chunk_id
+                          );
+                          if (validCitations.length === 0) return null;
+
+                          return (
+                            <div className="mt-3 border-t border-gray-100 pt-3">
+                              <div className="mb-2 text-xs font-medium text-gray-500">引用来源</div>
+                              <div className="mb-3 flex flex-wrap gap-1.5">
+                                {validCitations.map((c) => (
+                                  <a
+                                    key={`${msg.id}-${c.index}`}
+                                    href={`#source-${msg.id}-${c.index}`}
+                                    className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700 no-underline hover:bg-blue-50 hover:text-blue-700"
+                                  >
+                                    [{c.index}] {c.source ? c.source.split(/[/\\]/).pop() : "来源片段"}
+                                  </a>
+                                ))}
+                              </div>
+                              <div className="space-y-2">
+                                {validCitations.map((c) => (
+                                  <div
+                                    id={`source-${msg.id}-${c.index}`}
+                                    key={`source-${msg.id}-${c.index}`}
+                                    className="rounded-lg bg-gray-50 p-3 text-xs text-gray-700"
+                                  >
+                                    <div className="mb-1 font-medium text-gray-900">
+                                      [{c.index}] {c.source ? c.source.split(/[/\\]/).pop() : "来源片段"}
+                                      {c.page ? ` · p.${c.page}` : ""}
+                                    </div>
+                                    {c.text_snippet && (
+                                      <div className="leading-5 text-gray-600">{c.text_snippet}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="whitespace-pre-wrap">{msg.content}</div>
