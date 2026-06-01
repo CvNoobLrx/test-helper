@@ -222,6 +222,7 @@ class IngestionPipeline:
         """
         file_path = Path(file_path)
         stages: Dict[str, Any] = {}
+        file_hash: Optional[str] = None
         _total_stages = 6
 
         def _notify(stage_name: str, step: int) -> None:
@@ -586,12 +587,13 @@ class IngestionPipeline:
             
         except Exception as e:
             logger.error(f"❌ Pipeline failed: {e}", exc_info=True)
-            self.integrity_checker.mark_failed(file_hash, str(file_path), str(e))
+            if file_hash is not None:
+                self.integrity_checker.mark_failed(file_hash, str(file_path), str(e))
             
             return PipelineResult(
                 success=False,
                 file_path=str(file_path),
-                doc_id=file_hash if 'file_hash' in locals() else None,
+                doc_id=file_hash,
                 error=str(e),
                 stages=stages
             )
