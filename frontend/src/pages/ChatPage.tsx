@@ -7,6 +7,7 @@ import { api, streamQuery } from "../api/client";
 import type { Citation, Collection } from "../api/types";
 import { useAppStore } from "../stores/appStore";
 import { useChatStore } from "../stores/chatStore";
+import { createId } from "../utils/id";
 
 export function ChatPage() {
   const [input, setInput] = useState("");
@@ -74,10 +75,10 @@ export function ChatPage() {
 
     setInput("");
     setStatus(enableRerank ? "正在检索并进行 LLM 重排..." : "正在检索资料库...");
-    addMessage({ id: crypto.randomUUID(), role: "user", content: query }, activeCollection);
+    addMessage({ id: createId("msg"), role: "user", content: query }, activeCollection);
     addMessage(
       {
-        id: crypto.randomUUID(),
+        id: createId("msg"),
         role: "assistant",
         content: enableRerank ? "正在检索并进行 LLM 重排..." : "正在检索资料库...",
         isStreaming: true,
@@ -286,7 +287,13 @@ export function ChatPage() {
         </div>
 
         <footer className="border-t bg-white px-4 py-4">
-          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border bg-white p-2 shadow-sm">
+          <form
+            className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border bg-white p-2 shadow-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+          >
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -302,13 +309,13 @@ export function ChatPage() {
               disabled={isStreaming}
             />
             <button
-              onClick={handleSend}
+              type="submit"
               disabled={isStreaming || !input.trim()}
               className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900 text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={18} />
             </button>
-          </div>
+          </form>
         </footer>
       </section>
     </div>

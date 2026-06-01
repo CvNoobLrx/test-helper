@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Citation } from "../api/types";
+import { createId } from "../utils/id";
 
 export interface ChatMessage {
   id: string;
@@ -55,7 +56,7 @@ export const useChatStore = create<ChatState>()(
         return sessions.find((s) => s.id === activeSessionId);
       },
       createSession: (collection) => {
-        const id = crypto.randomUUID();
+        const id = createId("chat");
         const ts = now();
         const session: ChatSession = {
           id,
@@ -90,7 +91,7 @@ export const useChatStore = create<ChatState>()(
           const ts = now();
 
           if (!activeSessionId || !sessions.some((session) => session.id === activeSessionId)) {
-            activeSessionId = crypto.randomUUID();
+            activeSessionId = createId("chat");
             sessions = [
               {
                 id: activeSessionId,
