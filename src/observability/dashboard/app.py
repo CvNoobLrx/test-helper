@@ -44,6 +44,16 @@ def _page_evaluation_panel() -> None:
     render()
 
 
+def _page_review() -> None:
+    from src.observability.dashboard.pages.review_page import render
+    render()
+
+
+def _page_quiz() -> None:
+    from src.observability.dashboard.pages.quiz_page import render
+    render()
+
+
 # ── Navigation ───────────────────────────────────────────────────────
 
 pages = [
@@ -53,6 +63,8 @@ pages = [
     st.Page(_page_ingestion_traces, title="Ingestion Traces", icon="🔬"),
     st.Page(_page_query_traces, title="Query Traces", icon="🔎"),
     st.Page(_page_evaluation_panel, title="Evaluation Panel", icon="📏"),
+    st.Page(_page_review, title="Review", icon="🧠"),
+    st.Page(_page_quiz, title="Quiz", icon="📝"),
 ]
 
 

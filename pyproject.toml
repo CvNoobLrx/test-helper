@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "modular-rag-mcp-server"
+name = "final-review-helper"
 version = "0.1.0"
-description = "A modular RAG (Retrieval-Augmented Generation) MCP Server for knowledge management"
+description = "A final exam review assistant for PDF/PPT ingestion, RAG chat, quizzes, and spaced review"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -33,6 +33,13 @@ dependencies = [
     "streamlit>=1.30.0",
     "ragas>=0.1.0",
     "datasets>=2.0.0",
+    "python-pptx>=0.6.21",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "python-multipart>=0.0.6",
+    "onnxruntime>=1.14.1",
+    "tokenizers>=0.13.0",
+    "huggingface-hub>=0.25.0",
 ]
 
 [project.optional-dependencies]

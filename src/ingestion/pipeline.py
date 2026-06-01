@@ -1,4 +1,4 @@
-"""Ingestion Pipeline orchestrator for the Modular RAG MCP Server.
+"""Ingestion Pipeline orchestrator for Final Review Helper.
 
 This module implements the main pipeline that orchestrates the complete
 document ingestion flow:
@@ -27,7 +27,7 @@ from src.observability.logger import get_logger
 
 # Libs layer imports
 from src.libs.loader.file_integrity import SQLiteIntegrityChecker
-from src.libs.loader.pdf_loader import PdfLoader
+from src.libs.loader.loader_factory import LoaderFactory
 from src.libs.embedding.embedding_factory import EmbeddingFactory
 from src.libs.vector_store.vector_store_factory import VectorStoreFactory
 
@@ -36,12 +36,14 @@ from src.ingestion.chunking.document_chunker import DocumentChunker
 from src.ingestion.transform.chunk_refiner import ChunkRefiner
 from src.ingestion.transform.metadata_enricher import MetadataEnricher
 from src.ingestion.transform.image_captioner import ImageCaptioner
+from src.ingestion.transform.knowledge_point_extractor import KnowledgePointExtractor
 from src.ingestion.embedding.dense_encoder import DenseEncoder
 from src.ingestion.embedding.sparse_encoder import SparseEncoder
 from src.ingestion.embedding.batch_processor import BatchProcessor
 from src.ingestion.storage.bm25_indexer import BM25Indexer
 from src.ingestion.storage.vector_upserter import VectorUpserter
 from src.ingestion.storage.image_storage import ImageStorage
+from src.ingestion.storage.knowledge_point_index import KnowledgePointIndex
 
 logger = get_logger(__name__)
 
@@ -141,12 +143,9 @@ class IngestionPipeline:
         self.integrity_checker = SQLiteIntegrityChecker(db_path=str(resolve_path("data/db/ingestion_history.db")))
         logger.info("  ✓ FileIntegrityChecker initialized")
         
-        # Stage 2: Loader
-        self.loader = PdfLoader(
-            extract_images=True,
-            image_storage_dir=str(resolve_path(f"data/images/{collection}"))
-        )
-        logger.info("  ✓ PdfLoader initialized")
+        # Stage 2: Loader (deferred to run() based on file extension)
+        self._image_storage_dir = str(resolve_path(f"data/images/{collection}"))
+        logger.info("  ✓ LoaderFactory ready (loader created per file type)")
         
         # Stage 3: Chunker
         self.chunker = DocumentChunker(settings)
@@ -162,6 +161,9 @@ class IngestionPipeline:
         self.image_captioner = ImageCaptioner(settings)
         has_vision = self.image_captioner.llm is not None
         logger.info(f"  ✓ ImageCaptioner initialized (vision_enabled={has_vision})")
+
+        self.knowledge_point_extractor = KnowledgePointExtractor(settings)
+        logger.info(f"  ✓ KnowledgePointExtractor initialized (use_llm={self.knowledge_point_extractor.use_llm})")
         
         # Stage 5: Encoders
         embedding = EmbeddingFactory.create(settings)
@@ -191,6 +193,11 @@ class IngestionPipeline:
             images_root=str(resolve_path("data/images"))
         )
         logger.info("  ✓ ImageStorage initialized")
+
+        self.kp_index = KnowledgePointIndex(
+            index_dir=str(resolve_path(f"data/db/knowledge_points"))
+        )
+        logger.info("  ✓ KnowledgePointIndex initialized")
         
         logger.info("Pipeline initialization complete!")
     
@@ -253,9 +260,21 @@ class IngestionPipeline:
             # ─────────────────────────────────────────────────────────────
             logger.info("\n📄 Stage 2: Document Loading")
             _notify("load", 2)
-            
+
             _t0 = time.monotonic()
-            document = self.loader.load(str(file_path))
+            image_storage_dir = getattr(
+                self,
+                "_image_storage_dir",
+                str(resolve_path(f"data/images/{self.collection}")),
+            )
+            loader = getattr(self, "loader", None)
+            if loader is None:
+                loader = LoaderFactory.create(
+                    file_path,
+                    extract_images=True,
+                    image_storage_dir=image_storage_dir,
+                )
+            document = loader.load(str(file_path))
             _elapsed = (time.monotonic() - _t0) * 1000.0
             
             text_preview = document.text[:200].replace('\n', ' ') + "..." if len(document.text) > 200 else document.text
@@ -343,11 +362,21 @@ class IngestionPipeline:
             chunks = self.image_captioner.transform(chunks, trace)
             captioned = sum(1 for c in chunks if c.metadata.get("image_captions"))
             logger.info(f"      Chunks with captions: {captioned}")
-            
+
+            # 4d: Knowledge Point Extraction
+            logger.info("  4d. Knowledge Point Extraction...")
+            knowledge_point_extractor = getattr(self, "knowledge_point_extractor", None)
+            if knowledge_point_extractor is not None:
+                chunks = knowledge_point_extractor.transform(chunks, trace)
+            kp_count = sum(len(c.metadata.get("knowledge_points", [])) for c in chunks)
+            extracted_by = "llm" if any(c.metadata.get("extracted_by") == "llm" for c in chunks) else "rule"
+            logger.info(f"      Extracted {kp_count} knowledge points ({extracted_by})")
+
             stages["transform"] = {
                 "chunk_refiner": {"llm": refined_by_llm, "rule": refined_by_rule},
                 "metadata_enricher": {"llm": enriched_by_llm, "rule": enriched_by_rule},
-                "image_captioner": {"captioned_chunks": captioned}
+                "image_captioner": {"captioned_chunks": captioned},
+                "knowledge_point_extractor": {"kp_count": kp_count, "extracted_by": extracted_by},
             }
             _elapsed_transform = (time.monotonic() - _t0_transform) * 1000.0
             if trace is not None:
@@ -454,7 +483,7 @@ class IngestionPipeline:
             logger.info(f"      Index built for {len(sparse_stats)} documents")
             
             # 6c: Register images in image storage index
-            # Note: Images are already saved by PdfLoader, we just need to index them
+            # Note: Images are already saved by Loader, we just need to index them
             logger.info("  6c. Image Storage Index...")
             images = document.metadata.get("images", [])
             for img in images:
@@ -468,11 +497,27 @@ class IngestionPipeline:
                         page_num=img.get("page", 0)
                     )
             logger.info(f"      Indexed {len(images)} images")
+
+            # 6d: Store knowledge points in KP index
+            logger.info("  6d. Knowledge Point Index...")
+            all_kps = []
+            for c in chunks:
+                chunk_kps = c.metadata.get("knowledge_points", [])
+                for kp in chunk_kps:
+                    kp["chunk_id"] = c.id
+                    kp["source_ref"] = document.id
+                all_kps.extend(chunk_kps)
+            if all_kps:
+                kp_index = getattr(self, "kp_index", None)
+                if kp_index is not None:
+                    kp_index.add_knowledge_points(all_kps, collection=self.collection)
+            logger.info(f"      Indexed {len(all_kps)} knowledge points")
             
             stages["storage"] = {
                 "vector_count": len(vector_ids),
                 "bm25_docs": len(sparse_stats),
-                "images_indexed": len(images)
+                "images_indexed": len(images),
+                "knowledge_points_indexed": len(all_kps),
             }
             _elapsed_storage = (time.monotonic() - _t0_storage) * 1000.0
             if trace is not None:
@@ -553,7 +598,9 @@ class IngestionPipeline:
     
     def close(self) -> None:
         """Clean up resources."""
-        self.image_storage.close()
+        image_storage = getattr(self, "image_storage", None)
+        if image_storage is not None:
+            image_storage.close()
 
 
 def run_pipeline(

@@ -207,6 +207,19 @@ def _register_default_tools(protocol_handler: ProtocolHandler) -> None:
     from src.mcp_server.tools.get_document_summary import register_tool as register_summary_tool
     register_summary_tool(protocol_handler)
 
+    # Import and register review/quiz tools
+    from src.mcp_server.tools.generate_quiz import register_tool as register_quiz_tool
+    register_quiz_tool(protocol_handler)
+
+    from src.mcp_server.tools.get_mastery_status import register_tool as register_mastery_tool
+    register_mastery_tool(protocol_handler)
+
+    from src.mcp_server.tools.record_review_result import register_tool as register_review_tool
+    register_review_tool(protocol_handler)
+
+    from src.mcp_server.tools.get_review_plan import register_tool as register_plan_tool
+    register_plan_tool(protocol_handler)
+
 
 def create_mcp_server(
     server_name: str,

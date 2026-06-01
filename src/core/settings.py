@@ -1,4 +1,4 @@
-"""Configuration loading and validation for the Modular RAG MCP Server."""
+"""Configuration loading and validation for Final Review Helper."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def resolve_path(relative: Union[str, Path]) -> Path:
     it is resolved against :data:`REPO_ROOT`.
 
     >>> resolve_path("config/settings.yaml")  # doctest: +SKIP
-    PosixPath('/home/user/Modular-RAG-MCP-Server/config/settings.yaml')
+    PosixPath('/home/user/final-review-helper/config/settings.yaml')
     """
     p = Path(relative)
     if p.is_absolute():
@@ -175,6 +175,15 @@ class IngestionSettings:
     batch_size: int
     chunk_refiner: Optional[Dict[str, Any]] = None  # 动态配置
     metadata_enricher: Optional[Dict[str, Any]] = None  # 动态配置
+    knowledge_point_extractor: Optional[Dict[str, Any]] = None  # 知识点抽取配置
+
+
+@dataclass(frozen=True)
+class MasterySettings:
+    enabled: bool
+    data_dir: str
+    default_interval_days: int
+    min_ease_factor: float
 
 
 @dataclass(frozen=True)
@@ -188,6 +197,7 @@ class Settings:
     observability: ObservabilitySettings
     ingestion: Optional[IngestionSettings] = None
     vision_llm: Optional[VisionLLMSettings] = None
+    mastery: Optional[MasterySettings] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Settings":
@@ -212,6 +222,7 @@ class Settings:
                 batch_size=_require_int(ingestion, "batch_size", "ingestion"),
                 chunk_refiner=ingestion.get("chunk_refiner"),  # 可选配置
                 metadata_enricher=ingestion.get("metadata_enricher"),  # 可选配置
+                knowledge_point_extractor=ingestion.get("knowledge_point_extractor"),
             )
 
         vision_llm_settings = None
@@ -227,6 +238,16 @@ class Settings:
                 azure_endpoint=vision_llm.get("azure_endpoint"),
                 deployment_name=vision_llm.get("deployment_name"),
                 base_url=vision_llm.get("base_url"),
+            )
+
+        mastery_settings = None
+        if "mastery" in data:
+            mastery = _require_mapping(data, "mastery", "settings")
+            mastery_settings = MasterySettings(
+                enabled=_require_bool(mastery, "enabled", "mastery"),
+                data_dir=_require_str(mastery, "data_dir", "mastery"),
+                default_interval_days=_require_int(mastery, "default_interval_days", "mastery"),
+                min_ease_factor=_require_number(mastery, "min_ease_factor", "mastery"),
             )
 
         settings = cls(
@@ -281,6 +302,7 @@ class Settings:
             ),
             ingestion=ingestion_settings,
             vision_llm=vision_llm_settings,
+            mastery=mastery_settings,
         )
 
         return settings

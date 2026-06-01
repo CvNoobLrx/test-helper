@@ -86,7 +86,7 @@ def render() -> None:
     with col1:
         uploaded = st.file_uploader(
             "Select a file to ingest",
-            type=["pdf", "txt", "md", "docx"],
+            type=["pdf", "pptx", "txt", "md", "docx", "png", "jpg", "jpeg"],
             key="ingest_uploader",
         )
     with col2:

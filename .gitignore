@@ -96,9 +96,15 @@ cache/
 logs/
 *.log
 traces.jsonl
+__pycache__/
+frontend/node_modules/
+frontend/dist/
 
 # Auto-coder skill cache
 .github/skills/auto-coder/.spec_hash
+
+# Agents workspace
+.agents/
 
 # Secrets
 .env.local

@@ -130,6 +130,14 @@ def _register_builtin_providers() -> None:
     except ImportError:
         pass  # Ollama provider not available
 
+    try:
+        from src.libs.embedding.onnx_embedding import OnnxEmbedding
+        EmbeddingFactory.register_provider("onnx", OnnxEmbedding)
+        EmbeddingFactory.register_provider("onnxruntime", OnnxEmbedding)
+        EmbeddingFactory.register_provider("local", OnnxEmbedding)
+    except ImportError:
+        pass  # ONNX provider not available
+
 
 # Register providers when module is imported
 _register_builtin_providers()

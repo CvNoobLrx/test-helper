@@ -1,9 +1,4 @@
-"""
-Modular RAG MCP Server - Main Entry Point
-
-This is the entry point for the MCP Server. It initializes the configuration,
-sets up logging, and starts the server.
-"""
+"""Final Review Helper configuration smoke-test entry point."""
 
 import sys
 from pathlib import Path
@@ -14,12 +9,12 @@ from src.observability.logger import get_logger
 
 def main() -> int:
     """
-    Main entry point for the MCP Server.
+    Load settings and verify the application can initialize.
     
     Returns:
         int: Exit code (0 for success, non-zero for failure)
     """
-    print("Modular RAG MCP Server - Starting...")
+    print("期末复习助手 - configuration check")
 
     settings_path = Path("config/settings.yaml")
     try:
@@ -30,7 +25,7 @@ def main() -> int:
 
     logger = get_logger(log_level=settings.observability.log_level)
     logger.info("Settings loaded successfully.")
-    logger.info("MCP Server will be implemented in Phase E.")
+    logger.info("Use scripts/start_api.py to start the FastAPI server.")
     return 0
 
 

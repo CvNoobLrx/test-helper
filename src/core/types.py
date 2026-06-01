@@ -309,3 +309,97 @@ class RetrievalResult:
     def from_dict(cls, data: Dict[str, Any]) -> "RetrievalResult":
         """Create RetrievalResult from dictionary."""
         return cls(**data)
+
+
+@dataclass
+class KnowledgePoint:
+    """Represents an extracted knowledge point from a chunk.
+
+    Attributes:
+        id: Unique identifier (format: kp_{doc_hash}_{chunk_index}_{seq})
+        chunk_id: Parent chunk ID
+        text: The knowledge point statement (one concise sentence)
+        category: Category (e.g., "概念", "公式", "定理", "procedure")
+        importance: Importance level 1-5
+        source_ref: Reference to parent Document.id
+        metadata: Additional metadata
+    """
+
+    id: str
+    chunk_id: str
+    text: str
+    category: str = "general"
+    importance: int = 3
+    source_ref: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "KnowledgePoint":
+        return cls(**data)
+
+
+@dataclass
+class QuizQuestion:
+    """A generated review question tied to a knowledge point.
+
+    Attributes:
+        id: Unique question ID
+        knowledge_point_id: The KP this question tests
+        question_type: "mcq" | "short_answer" | "true_false"
+        question_text: The question text
+        options: For MCQ, list of options; empty for others
+        correct_answer: The correct answer
+        explanation: Brief explanation
+    """
+
+    id: str
+    knowledge_point_id: str
+    question_type: str
+    question_text: str
+    options: List[str] = field(default_factory=list)
+    correct_answer: str = ""
+    explanation: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "QuizQuestion":
+        return cls(**data)
+
+
+@dataclass
+class MasteryRecord:
+    """Tracks a student's mastery of a single knowledge point.
+
+    Attributes:
+        knowledge_point_id: Reference to KnowledgePoint.id
+        collection: Collection the KP belongs to
+        review_count: Total number of reviews
+        correct_count: Number of correct reviews
+        correct_rate: correct_count / review_count (0.0 if no reviews)
+        ease_factor: SM-2 ease factor (default 2.5)
+        interval_days: Current interval in days
+        last_review_time: ISO timestamp of last review
+        next_review_time: ISO timestamp when next review is due
+    """
+
+    knowledge_point_id: str
+    collection: str
+    review_count: int = 0
+    correct_count: int = 0
+    correct_rate: float = 0.0
+    ease_factor: float = 2.5
+    interval_days: int = 1
+    last_review_time: Optional[str] = None
+    next_review_time: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MasteryRecord":
+        return cls(**data)
