@@ -22,6 +22,14 @@ from src.observability.logger import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_MAX_WORKERS = 5
+GENERIC_KP_PATTERNS = (
+    "目录",
+    "谢谢",
+    "thank",
+    "chapter",
+    "参考文献",
+    "本章",
+)
 
 
 class KnowledgePointExtractor(BaseTransform):
@@ -258,64 +266,99 @@ class KnowledgePointExtractor(BaseTransform):
 
         kps: List[Dict[str, Any]] = []
         seq = 0
+        current_topic = self._infer_topic(text)
+
+        def add_kp(kp_text: str, category: str, importance: int, subtopic: str = "") -> None:
+            nonlocal seq
+            normalized = self._clean_kp_text(kp_text)
+            if not self._is_valid_kp_text(normalized):
+                return
+            kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{seq}"
+            kps.append({
+                "id": kp_id,
+                "text": normalized,
+                "topic": current_topic,
+                "subtopic": subtopic or self._short_subtopic(normalized),
+                "category": category,
+                "importance": importance,
+                "exam_focus": self._default_exam_focus(category),
+            })
+            seq += 1
 
         # Extract from markdown headings
         for match in re.finditer(r"^#{1,6}\s+(.+)$", text, re.MULTILINE):
             heading = match.group(1).strip()
-            if len(heading) > 5:
-                kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{seq}"
-                kps.append({
-                    "id": kp_id,
-                    "text": heading,
-                    "category": "概念",
-                    "importance": 3,
-                })
-                seq += 1
+            if 5 < len(heading) < 60:
+                add_kp(f"理解“{heading}”的含义、范围和作用。", "概念", 3, heading)
 
         # Extract from bold text
         for match in re.finditer(r"\*\*(.+?)\*\*", text):
             bold = match.group(1).strip()
-            if len(bold) > 5 and len(bold) < 100:
-                kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{seq}"
-                kps.append({
-                    "id": kp_id,
-                    "text": bold,
-                    "category": "概念",
-                    "importance": 3,
-                })
-                seq += 1
+            if 5 < len(bold) < 80:
+                add_kp(f"掌握“{bold}”这一核心概念。", "概念", 3, bold)
 
         # Extract from definition patterns (X 是 Y, X: Y)
         for match in re.finditer(r"^(.{5,50})(?:是|：)\s*(.{10,200})$", text, re.MULTILINE):
-            kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{seq}"
-            kps.append({
-                "id": kp_id,
-                "text": f"{match.group(1).strip()}是{match.group(2).strip()}",
-                "category": "定义",
-                "importance": 4,
-            })
-            seq += 1
+            add_kp(f"{match.group(1).strip()}是{match.group(2).strip()}", "定义", 4, match.group(1).strip())
 
         # Extract from bullet points
         for match in re.finditer(r"^[\s]*[-*•]\s+(.{10,200})$", text, re.MULTILINE):
-            kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{seq}"
-            kps.append({
-                "id": kp_id,
-                "text": match.group(1).strip(),
-                "category": "事实",
-                "importance": 2,
-            })
-            seq += 1
+            add_kp(match.group(1).strip(), "事实", 2)
 
         # Deduplicate by text
         seen = set()
         unique_kps = []
         for kp in kps:
-            if kp["text"] not in seen:
-                seen.add(kp["text"])
+            key = self._normalize_text(kp["text"])
+            if key not in seen:
+                seen.add(key)
                 unique_kps.append(kp)
 
         return unique_kps
+
+    def _infer_topic(self, text: str) -> str:
+        for line in text.splitlines()[:20]:
+            line = line.strip()
+            if line.startswith("#"):
+                topic = line.lstrip("#").strip()
+                if 2 <= len(topic) <= 40:
+                    return topic
+        for line in text.splitlines()[:10]:
+            line = line.strip()
+            if 4 <= len(line) <= 40 and not line.endswith(("。", ".", "，", ",")):
+                return line
+        return "综合考点"
+
+    def _clean_kp_text(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip(" -—:：;；")
+
+    def _normalize_text(self, text: str) -> str:
+        return re.sub(r"[\s，。,.：:；;、“”\"'（）()【】\[\]-]+", "", text).lower()
+
+    def _is_valid_kp_text(self, text: str) -> bool:
+        if len(text) < 8 or len(text) > 120:
+            return False
+        lowered = text.lower()
+        if any(pattern in lowered for pattern in GENERIC_KP_PATTERNS):
+            return False
+        if len(set(text)) <= 4:
+            return False
+        return True
+
+    def _short_subtopic(self, text: str) -> str:
+        return text[:24].rstrip("，。,.；;")
+
+    def _default_exam_focus(self, category: str) -> str:
+        mapping = {
+            "定义": "适合以名词解释或简答题形式复习。",
+            "概念": "适合考查含义、作用和适用场景。",
+            "步骤": "适合按流程题或排序题复习。",
+            "方法": "适合结合材料分析如何应用。",
+            "原则": "适合考查判断依据和注意事项。",
+            "分类": "适合考查分类标准和差异对比。",
+            "易错点": "适合考查辨析和纠错。",
+        }
+        return mapping.get(category, "适合作为基础事实或简答题复习。")
 
     def _llm_extract(
         self,
@@ -394,11 +437,17 @@ class KnowledgePointExtractor(BaseTransform):
                 if not isinstance(raw, dict) or "text" not in raw:
                     continue
                 kp_id = f"kp_{chunk_id[:16]}_{chunk_index}_{i}"
+                text = self._clean_kp_text(str(raw.get("text", "")))
+                if not self._is_valid_kp_text(text):
+                    continue
                 kps.append({
                     "id": kp_id,
-                    "text": raw["text"],
+                    "text": text,
+                    "topic": self._clean_kp_text(str(raw.get("topic", ""))) or "综合考点",
+                    "subtopic": self._clean_kp_text(str(raw.get("subtopic", ""))) or self._short_subtopic(text),
                     "category": raw.get("category", "general"),
                     "importance": int(raw.get("importance", 3)),
+                    "exam_focus": self._clean_kp_text(str(raw.get("exam_focus", ""))) or self._default_exam_focus(raw.get("category", "general")),
                 })
 
             return kps

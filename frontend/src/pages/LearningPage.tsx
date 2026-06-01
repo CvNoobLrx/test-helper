@@ -67,6 +67,12 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
   const stats = statsData?.stats;
   const kps = kpsData?.knowledge_points || [];
   const selected = kps.find((kp) => kp.id === expandedId);
+  const groupedKps = kps.reduce<Record<string, KnowledgePoint[]>>((acc, kp) => {
+    const topic = kp.topic || "综合考点";
+    acc[topic] = acc[topic] || [];
+    acc[topic].push(kp);
+    return acc;
+  }, {});
 
   return (
     <div className="space-y-6">
@@ -100,23 +106,36 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
           <p className="text-gray-500 text-sm">No knowledge points extracted yet.</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
-          <div className="space-y-2 max-h-96 overflow-auto">
-            {kps.map((kp) => (
-              <button
-                key={kp.id}
-                onClick={() => setExpandedId((id) => (id === kp.id ? null : kp.id))}
-                className={`w-full rounded-lg p-3 text-left ${
-                  expandedId === kp.id ? "bg-blue-50 ring-1 ring-blue-200" : "bg-gray-50 hover:bg-gray-100"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-medium text-gray-900">{kp.content || kp.text}</div>
-                  <ChevronDown size={16} className="mt-0.5 shrink-0 text-gray-400" />
+          <div className="max-h-96 overflow-auto space-y-4">
+            {Object.entries(groupedKps).map(([topic, items]) => (
+              <section key={topic}>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900">{topic}</h3>
+                  <span className="text-xs text-gray-400">{items.length} 个考点</span>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {kp.category || "知识点"} · 重要度 {kp.importance ?? 3}
+                <div className="space-y-2">
+                  {items.map((kp) => (
+                    <button
+                      key={kp.id}
+                      onClick={() => setExpandedId((id) => (id === kp.id ? null : kp.id))}
+                      className={`w-full rounded-lg p-3 text-left ${
+                        expandedId === kp.id ? "bg-blue-50 ring-1 ring-blue-200" : "bg-gray-50 hover:bg-gray-100"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs text-gray-500 mb-1">{kp.subtopic || kp.category || "考点"}</div>
+                          <div className="text-sm font-medium text-gray-900">{kp.content || kp.text}</div>
+                        </div>
+                        <ChevronDown size={16} className="mt-0.5 shrink-0 text-gray-400" />
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {kp.category || "知识点"} · 重要度 {kp.importance ?? 3}
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              </button>
+              </section>
             ))}
           </div>
           <div className="rounded-lg border bg-gray-50 p-4">
@@ -125,8 +144,11 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
                 <div className="text-xs text-gray-500 mb-2">知识点详情</div>
                 <div className="text-sm font-medium text-gray-900 leading-6">{selected.content || selected.text}</div>
                 <div className="mt-3 space-y-1 text-xs text-gray-500">
+                  <div>主题：{selected.topic || "综合考点"}</div>
+                  <div>考点：{selected.subtopic || selected.category || "知识点"}</div>
                   <div>类型：{selected.category || "知识点"}</div>
                   <div>重要度：{selected.importance ?? 3}</div>
+                  {selected.exam_focus && <div>复习建议：{selected.exam_focus}</div>}
                   {selected.source_ref && <div className="break-all">来源：{selected.source_ref}</div>}
                   {selected.chunk_id && <div className="break-all">片段：{selected.chunk_id}</div>}
                 </div>

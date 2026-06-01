@@ -107,8 +107,11 @@ class KnowledgePointIndex:
                 "id": kp_id,
                 "chunk_id": kp.get("chunk_id", ""),
                 "text": kp.get("text", ""),
+                "topic": kp.get("topic", ""),
+                "subtopic": kp.get("subtopic", ""),
                 "category": kp.get("category", "general"),
                 "importance": kp.get("importance", 3),
+                "exam_focus": kp.get("exam_focus", ""),
                 "source_ref": kp.get("source_ref", ""),
             }
 

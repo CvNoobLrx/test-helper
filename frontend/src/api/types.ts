@@ -75,8 +75,11 @@ export interface KnowledgePoint {
   id: string;
   text?: string;
   content?: string;
+  topic?: string;
+  subtopic?: string;
   category: string;
   importance: string | number;
+  exam_focus?: string;
   source_chunk_id?: string;
   source_ref?: string;
   chunk_id?: string;

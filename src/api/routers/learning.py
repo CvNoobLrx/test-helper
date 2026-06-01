@@ -46,24 +46,69 @@ def _kp_text(kp: dict) -> str:
 
 
 def _normalize_kp_text(text: str) -> str:
-    return re.sub(r"\s+", "", text).lower()
+    return re.sub(r"[\s，。,.：:；;、“”\"'（）()【】\[\]-]+", "", text).lower()
+
+
+def _infer_topic(kp: dict, text: str) -> str:
+    topic = str(kp.get("topic") or "").strip()
+    if topic:
+        return topic
+    category = str(kp.get("category") or "综合考点").strip()
+    source = str(kp.get("source_ref") or "").split("/")[-1].split("\\")[-1]
+    if source:
+        return source.rsplit(".", 1)[0]
+    return category or "综合考点"
+
+
+def _infer_subtopic(kp: dict, text: str) -> str:
+    subtopic = str(kp.get("subtopic") or "").strip()
+    if subtopic:
+        return subtopic
+    return text[:24].rstrip("，。,.；;")
+
+
+def _is_low_quality_kp(text: str) -> bool:
+    if len(text) < 8 or len(text) > 140:
+        return True
+    compact = _normalize_kp_text(text)
+    if len(compact) < 6 or len(set(compact)) <= 4:
+        return True
+    low_value = ("目录", "谢谢", "thank", "参考文献", "本章", "学习目标")
+    return any(item in compact for item in low_value)
+
+
+def _similar_key_exists(key: str, existing: Dict[str, dict]) -> str:
+    for old_key in existing:
+        if key == old_key:
+            return old_key
+        shorter, longer = sorted((key, old_key), key=len)
+        if len(shorter) >= 10 and shorter in longer:
+            return old_key
+    return ""
 
 
 def _dedupe_knowledge_points(kps: List[dict]) -> List[dict]:
     by_text: Dict[str, dict] = {}
     for kp in kps:
         text = _kp_text(kp)
-        if len(text) < 4:
+        if _is_low_quality_kp(text):
             continue
         key = _normalize_kp_text(text)
-        existing = by_text.get(key)
+        matched_key = _similar_key_exists(key, by_text)
+        existing = by_text.get(matched_key or key)
+        item = {
+            **kp,
+            "text": text,
+            "content": text,
+            "topic": _infer_topic(kp, text),
+            "subtopic": _infer_subtopic(kp, text),
+            "exam_focus": str(kp.get("exam_focus") or "可作为简答、辨析或材料分析题复习。").strip(),
+        }
         if existing is None or int(kp.get("importance", 0) or 0) > int(existing.get("importance", 0) or 0):
-            item = {**kp, "text": text, "content": text}
-            by_text[key] = item
+            by_text[matched_key or key] = item
     return sorted(
         by_text.values(),
-        key=lambda item: int(item.get("importance", 0) or 0),
-        reverse=True,
+        key=lambda item: (str(item.get("topic", "")), -int(item.get("importance", 0) or 0)),
     )
 
 
