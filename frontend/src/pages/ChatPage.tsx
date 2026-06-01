@@ -12,6 +12,7 @@ export function ChatPage() {
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("");
   const [collectionDraft, setCollectionDraft] = useState("");
+  const [enableRerank, setEnableRerank] = useState(false);
   const { messages, isStreaming, addMessage, updateLastAssistant, finalizeLastAssistant, setStreaming, clear } = useChatStore();
   const collection = useAppStore((s) => s.selectedCollection);
   const setCollection = useAppStore((s) => s.setCollection);
@@ -37,16 +38,21 @@ export function ChatPage() {
 
     setInput("");
     addMessage({ id: crypto.randomUUID(), role: "user", content: query });
-    addMessage({ id: crypto.randomUUID(), role: "assistant", content: "", isStreaming: true });
+    addMessage({ id: crypto.randomUUID(), role: "assistant", content: "正在检索资料库...", isStreaming: true });
     setStreaming(true);
-    setStatus("正在检索资料库...");
+    setStatus(enableRerank ? "正在检索并进行 LLM 重排..." : "正在检索资料库...");
 
     try {
       await streamQuery(
         query,
         activeCollection,
         5,
-        (stage) => setStatus(stage.message || stage.stage),
+        enableRerank,
+        (stage) => {
+          const message = stage.message || stage.stage;
+          setStatus(message);
+          updateLastAssistant(message);
+        },
         (text) => updateLastAssistant(text),
         (data) => {
           finalizeLastAssistant((data.citations || []) as Citation[]);
@@ -84,6 +90,15 @@ export function ChatPage() {
               ))}
             </datalist>
             {status && <span>{status}</span>}
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={enableRerank}
+                onChange={(e) => setEnableRerank(e.target.checked)}
+                disabled={isStreaming}
+              />
+              LLM重排
+            </label>
           </div>
         </div>
         <button title="清空对话" onClick={clear} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
