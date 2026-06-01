@@ -41,6 +41,65 @@ def _citation_to_dict(citation, index: int) -> dict:
     }
 
 
+def _build_context(citations: list[dict], max_chars: int = 6000) -> str:
+    parts = []
+    used = 0
+    for citation in citations:
+        snippet = (citation.get("text_snippet") or "").strip()
+        if not snippet:
+            continue
+        source = citation.get("source") or "unknown"
+        page = f", page {citation['page']}" if citation.get("page") is not None else ""
+        block = f"[{citation.get('index')}], source: {source}{page}\n{snippet}"
+        if used + len(block) > max_chars:
+            break
+        used += len(block)
+        parts.append(block)
+    return "\n\n".join(parts)
+
+
+def _generate_answer(query: str, citations: list[dict], fallback: str) -> tuple[str, dict]:
+    if not citations:
+        return fallback, {"answer_mode": "empty"}
+
+    context = _build_context(citations)
+    if not context:
+        return fallback, {"answer_mode": "retrieval"}
+
+    try:
+        from src.libs.llm import LLMFactory, Message
+
+        settings = get_settings()
+        llm = LLMFactory.create(settings)
+        prompt = f"""你是期末复习助手。请只根据下面的资料片段回答用户问题。
+
+要求：
+- 先判断资料是否足以回答问题。
+- 如果问题与资料库无关，或资料中没有依据，请直接说明“资料库中没有找到相关依据”，不要硬凑答案。
+- 如果可以回答，请用自然、简洁的中文总结，不要照搬大段原文。
+- 关键结论后标注引用编号，如 [1]、[2]。
+- 最后给出“可继续复习的问题”2-3 个。
+
+用户问题：
+{query}
+
+资料片段：
+{context}
+"""
+        response = llm.chat(
+            [Message(role="user", content=prompt)],
+            temperature=0.0,
+            max_tokens=900,
+        )
+        content = response.content.strip()
+        if content:
+            return content, {"answer_mode": "llm"}
+    except Exception as exc:
+        return fallback, {"answer_mode": "retrieval_fallback", "answer_error": str(exc)}
+
+    return fallback, {"answer_mode": "retrieval_fallback"}
+
+
 @router.post("")
 async def query_knowledge(req: QueryRequest):
     """Non-streaming RAG query."""
@@ -55,14 +114,13 @@ async def query_knowledge(req: QueryRequest):
         top_k=req.top_k,
         collection=req.collection,
     )
+    citations = [_citation_to_dict(c, i) for i, c in enumerate(response.citations)]
+    answer, answer_meta = _generate_answer(req.query, citations, response.content)
 
     return {
-        "answer": response.content,
-        "citations": [
-            _citation_to_dict(c, i)
-            for i, c in enumerate(response.citations)
-        ],
-        "metadata": response.metadata,
+        "answer": answer,
+        "citations": citations,
+        "metadata": {**response.metadata, **answer_meta},
         "is_empty": response.is_empty,
     }
 
@@ -87,16 +145,18 @@ async def query_stream(req: QueryRequest):
                 collection=req.collection,
             ))
 
-            yield sse_event("stage", {"stage": "complete", "message": "Search complete"})
+            citations = [_citation_to_dict(c, i) for i, c in enumerate(response.citations)]
 
-            yield sse_event("token", {"text": response.content})
+            yield sse_event("stage", {"stage": "generating", "message": "Generating answer..."})
+            answer, answer_meta = _generate_answer(req.query, citations, response.content)
+
+            yield sse_event("stage", {"stage": "complete", "message": "Answer complete"})
+
+            yield sse_event("token", {"text": answer})
 
             yield sse_event("done", {
-                "citations": [
-                    _citation_to_dict(c, i)
-                    for i, c in enumerate(response.citations)
-                ],
-                "metadata": response.metadata,
+                "citations": citations,
+                "metadata": {**response.metadata, **answer_meta},
                 "is_empty": response.is_empty,
             })
         except Exception as exc:
