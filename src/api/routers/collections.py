@@ -15,6 +15,11 @@ async def list_collections():
     for name in collections:
         try:
             stats = ds.get_collection_stats(name)
+            if not any(
+                int(stats.get(key, 0) or 0)
+                for key in ("document_count", "chunk_count", "image_count", "total_documents", "total_chunks", "total_images")
+            ):
+                continue
             result.append({"name": name, **stats})
         except Exception:
             result.append({"name": name})
