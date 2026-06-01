@@ -45,11 +45,36 @@ async def get_document_images(doc_id: str, collection: Optional[str] = None):
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str, collection: str = "default"):
     ds = get_data_service()
+    chunks = ds.get_chunks(doc_id, collection)
+    chunk_ids = [chunk.get("id") for chunk in chunks if chunk.get("id")]
     result = ds.delete_document(doc_id, collection, source_hash=doc_id)
+    removed_kps: list[str] = []
+    mastery_removed = 0
+    if chunk_ids:
+        try:
+            from src.ingestion.storage.knowledge_point_index import KnowledgePointIndex
+            from src.ingestion.storage.mastery_store import MasteryStore
+
+            settings = get_settings()
+            kp_index = KnowledgePointIndex(index_dir=str(resolve_path("data/db/knowledge_points")))
+            removed_kps = kp_index.remove_by_chunks(chunk_ids, collection)
+            data_dir = settings.mastery.data_dir if settings.mastery else "data/db/mastery"
+            mastery = MasteryStore(data_dir=str(resolve_path(data_dir)))
+            mastery_removed = mastery.remove_records(removed_kps, collection)
+        except Exception:
+            removed_kps = []
+            mastery_removed = 0
     if hasattr(result, "__dict__"):
         from dataclasses import asdict
-        return asdict(result)
-    return {"deleted": True}
+        payload = asdict(result)
+        payload["knowledge_points_deleted"] = len(removed_kps)
+        payload["mastery_records_deleted"] = mastery_removed
+        return payload
+    return {
+        "deleted": True,
+        "knowledge_points_deleted": len(removed_kps),
+        "mastery_records_deleted": mastery_removed,
+    }
 
 
 @router.post("/upload")

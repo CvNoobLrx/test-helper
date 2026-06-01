@@ -105,6 +105,18 @@ class MasteryStore:
         self._cache[collection]["records"][record.knowledge_point_id] = record.to_dict()
         self._save(collection)
 
+    def remove_records(self, knowledge_point_ids: List[str], collection: str = "default") -> int:
+        self._ensure_loaded(collection)
+        records = self._cache[collection]["records"]
+        removed = 0
+        for kp_id in knowledge_point_ids:
+            if kp_id in records:
+                del records[kp_id]
+                removed += 1
+        if removed:
+            self._save(collection)
+        return removed
+
     def get_due_items(
         self,
         collection: str = "default",

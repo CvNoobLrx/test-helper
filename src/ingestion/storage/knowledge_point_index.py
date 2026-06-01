@@ -143,6 +143,21 @@ class KnowledgePointIndex:
             self._save(collection)
         return len(to_remove)
 
+    def remove_by_chunks(self, chunk_ids: List[str], collection: str = "default") -> List[str]:
+        self._ensure_loaded(collection)
+        chunk_id_set = set(chunk_ids)
+        kps = self._cache[collection]["knowledge_points"]
+        to_remove = [
+            kid
+            for kid, kp in kps.items()
+            if kp.get("chunk_id") in chunk_id_set
+        ]
+        for kid in to_remove:
+            del kps[kid]
+        if to_remove:
+            self._save(collection)
+        return to_remove
+
     def get_total_count(self, collection: str = "default") -> int:
         self._ensure_loaded(collection)
         return len(self._cache[collection]["knowledge_points"])

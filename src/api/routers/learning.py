@@ -112,6 +112,36 @@ def _dedupe_knowledge_points(kps: List[dict]) -> List[dict]:
     )
 
 
+def _existing_chunk_ids(collection: str) -> set[str]:
+    try:
+        from src.api.dependencies import get_data_service
+
+        ds = get_data_service()
+        docs = ds.list_documents(collection)
+        chunk_ids: set[str] = set()
+        for doc in docs:
+            source_hash = doc.get("source_hash")
+            if not source_hash:
+                continue
+            for chunk in ds.get_chunks(source_hash, collection):
+                cid = chunk.get("id")
+                if cid:
+                    chunk_ids.add(cid)
+        return chunk_ids
+    except Exception:
+        return set()
+
+
+def _filter_existing_knowledge_points(kps: List[dict], collection: str) -> List[dict]:
+    existing_chunks = _existing_chunk_ids(collection)
+    if not existing_chunks:
+        return []
+    return [
+        kp for kp in kps
+        if not kp.get("chunk_id") or kp.get("chunk_id") in existing_chunks
+    ]
+
+
 def _sync_mastery_records(collection: str) -> None:
     idx = _get_kp_index(collection)
     store = _get_mastery_store(collection)
@@ -134,7 +164,10 @@ async def get_mastery(collection: str = "default"):
 @router.get("/knowledge-points")
 async def list_knowledge_points(collection: str = "default"):
     idx = _get_kp_index(collection)
-    kps = _dedupe_knowledge_points(idx.get_by_collection(collection))
+    kps = _filter_existing_knowledge_points(
+        _dedupe_knowledge_points(idx.get_by_collection(collection)),
+        collection,
+    )
     return {"knowledge_points": kps}
 
 
