@@ -502,10 +502,15 @@ class IngestionPipeline:
             # 6d: Store knowledge points in KP index
             logger.info("  6d. Knowledge Point Index...")
             all_kps = []
+            vector_id_by_chunk = {
+                c.id: vector_ids[i]
+                for i, c in enumerate(chunks)
+                if i < len(vector_ids)
+            }
             for c in chunks:
                 chunk_kps = c.metadata.get("knowledge_points", [])
                 for kp in chunk_kps:
-                    kp["chunk_id"] = c.id
+                    kp["chunk_id"] = vector_id_by_chunk.get(c.id, c.id)
                     kp["source_ref"] = document.id
                 all_kps.extend(chunk_kps)
             if all_kps:

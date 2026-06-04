@@ -1,5 +1,6 @@
 export interface Collection {
   name: string;
+  storage_name?: string;
   collection?: string;
   chunk_count?: number;
   document_count?: number;

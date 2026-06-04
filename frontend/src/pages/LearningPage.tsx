@@ -15,9 +15,12 @@ export function LearningPage() {
   return (
     <div className="p-8">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">复习计划</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-950">复习训练</h1>
+          <p className="mt-2 text-sm text-gray-500">查看知识点、安排今日复习，并从资料中生成测验。</p>
+        </div>
         <label className="flex items-center gap-2 text-sm text-gray-600">
-          资料库
+          当前科目
           <input
             value={collection}
             onChange={(e) => setCollection(e.target.value || "default")}
@@ -28,9 +31,9 @@ export function LearningPage() {
 
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
         {([
-          ["overview", "Overview", BookOpen],
-          ["review", "Review", Brain],
-          ["quiz", "Quiz", HelpCircle],
+          ["overview", "知识点", BookOpen],
+          ["review", "今日复习", Brain],
+          ["quiz", "生成测验", HelpCircle],
         ] as [Tab, string, React.ElementType][]).map(([key, label, Icon]) => (
           <button
             key={key}
@@ -54,14 +57,15 @@ export function LearningPage() {
 
 function OverviewTab({ collection, onStartReview }: { collection: string; onStartReview: () => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const encodedCollection = encodeURIComponent(collection || "default");
   const { data: statsData } = useQuery({
     queryKey: ["mastery", collection],
-    queryFn: () => api.get<{ stats: MasteryStats }>(`/learning/mastery?collection=${collection}`),
+    queryFn: () => api.get<{ stats: MasteryStats }>(`/learning/mastery?collection=${encodedCollection}`),
   });
 
   const { data: kpsData } = useQuery({
     queryKey: ["knowledge-points", collection],
-    queryFn: () => api.get<{ knowledge_points: KnowledgePoint[] }>(`/learning/knowledge-points?collection=${collection}`),
+    queryFn: () => api.get<{ knowledge_points: KnowledgePoint[] }>(`/learning/knowledge-points?collection=${encodedCollection}`),
   });
 
   const stats = statsData?.stats;
@@ -79,19 +83,19 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
       {stats && (
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-white rounded-xl border p-5">
-            <div className="text-sm text-gray-500 mb-1">Total</div>
+            <div className="text-sm text-gray-500 mb-1">全部知识点</div>
             <div className="text-2xl font-bold">{stats.total}</div>
           </div>
           <div className="bg-green-50 rounded-xl border border-green-200 p-5">
-            <div className="text-sm text-green-600 mb-1">Mastered</div>
+            <div className="text-sm text-green-600 mb-1">已掌握</div>
             <div className="text-2xl font-bold text-green-700">{stats.mastered}</div>
           </div>
           <div className="bg-yellow-50 rounded-xl border border-yellow-200 p-5">
-            <div className="text-sm text-yellow-600 mb-1">Learning</div>
+            <div className="text-sm text-yellow-600 mb-1">学习中</div>
             <div className="text-2xl font-bold text-yellow-700">{stats.learning}</div>
           </div>
           <div className="bg-red-50 rounded-xl border border-red-200 p-5">
-            <div className="text-sm text-red-600 mb-1">Needs Review</div>
+            <div className="text-sm text-red-600 mb-1">需复习</div>
             <div className="text-2xl font-bold text-red-700">{stats.needs_review}</div>
           </div>
         </div>
@@ -99,11 +103,11 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
 
       <div className="bg-white rounded-xl border p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">知识点清单 ({kps.length})</h2>
-          <span className="text-xs text-gray-500">点击知识点查看详情，或加入复习</span>
+          <h2 className="text-lg font-semibold">知识点总览 ({kps.length})</h2>
+          <span className="text-xs text-gray-500">点击知识点查看来源、重要度和复习建议</span>
         </div>
         {kps.length === 0 ? (
-          <p className="text-gray-500 text-sm">No knowledge points extracted yet.</p>
+          <p className="text-gray-500 text-sm">还没有提取到知识点。上传资料并完成解析后会出现在这里。</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
           <div className="max-h-96 overflow-auto space-y-4">
@@ -156,11 +160,11 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
                   onClick={onStartReview}
                   className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  去 Review 复习
+                  去今日复习
                 </button>
               </div>
             ) : (
-              <p className="text-sm text-gray-500">选择左侧知识点查看来源、重要度，并把它加入复习队列。</p>
+              <p className="text-sm text-gray-500">选择左侧知识点查看来源、重要度和考试复习建议。</p>
             )}
           </div>
           </div>
@@ -171,13 +175,15 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
 }
 
 function ReviewTab({ collection }: { collection: string }) {
+  const encodedCollection = encodeURIComponent(collection || "default");
   const { data, refetch } = useQuery({
     queryKey: ["review-plan", collection],
-    queryFn: () => api.get<{ review_items: ReviewItem[] }>(`/learning/review-plan?collection=${collection}&max_items=5`),
+    queryFn: () => api.get<{ review_items: ReviewItem[] }>(`/learning/review-plan?collection=${encodedCollection}&max_items=5`),
   });
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
   const submitMutation = useMutation({
     mutationFn: (quality: number) =>
@@ -196,28 +202,40 @@ function ReviewTab({ collection }: { collection: string }) {
     return (
       <div className="bg-white rounded-xl border p-8 text-center">
         <Brain size={48} className="mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-500">No items due for review. Great job!</p>
+        <p className="text-gray-500">今天暂时没有待复习项目。</p>
         <button onClick={() => refetch()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">
-          Refresh
+          刷新
         </button>
       </div>
     );
   }
 
   return (
-    <div className="max-w-xl">
-      <div className="bg-white rounded-xl border p-6">
-        <div className="text-sm text-gray-500 mb-2">
-          {currentIndex + 1} / {items.length}
-        </div>
-        <div className="text-lg mb-2">{current?.content || "Loading..."}</div>
-        <div className="text-xs text-gray-500 mb-6">
-          {current?.category || "知识点"} · 间隔 {current?.interval_days || 1} 天
+    <div className="max-w-2xl">
+      <div className="rounded-xl border bg-white p-6">
+        <div className="mb-4 flex items-center justify-between text-sm text-gray-500">
+          <span>复习卡片 {currentIndex + 1} / {items.length}</span>
+          <span>{current?.category || "知识点"}</span>
         </div>
 
-        {!submitted ? (
+        <div className="rounded-lg bg-gray-50 p-5">
+          <div className="text-xs font-medium text-gray-500">先遮住资料，凭记忆解释这个知识点</div>
+          <div className="mt-3 text-lg font-semibold leading-8 text-gray-950">{current?.content || "正在加载..."}</div>
+          <div className="mt-3 text-xs text-gray-500">复习间隔：{current?.interval_days || 1} 天</div>
+        </div>
+
+        {!revealed ? (
+          <div className="mt-5">
+            <button
+              onClick={() => setRevealed(true)}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
+            >
+              我想好了，记录掌握度
+            </button>
+          </div>
+        ) : !submitted ? (
           <div>
-            <p className="text-sm text-gray-600 mb-3">How well did you recall this?</p>
+            <p className="mb-3 mt-5 text-sm text-gray-600">这次回忆得怎么样？0 表示完全不会，5 表示很熟。</p>
             <div className="flex gap-2">
               {[0, 1, 2, 3, 4, 5].map((q) => (
                 <button
@@ -232,15 +250,17 @@ function ReviewTab({ collection }: { collection: string }) {
           </div>
         ) : (
           <div>
-            <p className="text-green-600 text-sm mb-3">Recorded! Next review scheduled.</p>
+            <p className="text-green-600 text-sm mb-3">已记录掌握度，并安排下次复习。</p>
             <button
               onClick={() => {
-                setCurrentIndex((i) => i + 1);
                 setSubmitted(false);
+                setRevealed(false);
+                setCurrentIndex(0);
+                refetch();
               }}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
             >
-              Next
+              下一项
             </button>
           </div>
         )}
@@ -255,16 +275,18 @@ function QuizTab({ collection }: { collection: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
   const [score, setScore] = useState(0);
+  const [quizError, setQuizError] = useState("");
 
   const generateMutation = useMutation({
     mutationFn: () =>
-      api.post<{ questions: QuizQuestion[] }>("/learning/quiz/generate", {
+      api.post<{ questions: QuizQuestion[]; error?: string }>("/learning/quiz/generate", {
         collection,
         num_questions: 5,
         difficulty: "medium",
       }),
     onSuccess: (data) => {
       setQuestions(data.questions || []);
+      setQuizError(data.error || "");
       setCurrentIdx(0);
       setScore(0);
       setSelected(null);
@@ -273,39 +295,59 @@ function QuizTab({ collection }: { collection: string }) {
   });
 
   const current = questions[currentIdx];
+  const questionTypeLabel = {
+    mcq: "选择题",
+    true_false: "判断题",
+    short_answer: "简答题",
+  }[current?.type || "mcq"];
+  const normalizeAnswer = (value: string | null | undefined) => {
+    const text = String(value || "").trim().toLowerCase();
+    if (["true", "正确", "对", "是"].includes(text)) return "true";
+    if (["false", "错误", "错", "否"].includes(text)) return "false";
+    return text;
+  };
+  const displayAnswer = (value: string) => {
+    const normalized = normalizeAnswer(value);
+    if (normalized === "true") return "正确";
+    if (normalized === "false") return "错误";
+    return value;
+  };
 
   return (
     <div className="max-w-xl">
       {questions.length === 0 ? (
         <div className="bg-white rounded-xl border p-8 text-center">
           <HelpCircle size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500 mb-4">Generate a quiz from your knowledge points</p>
+          <p className="text-gray-500 mb-4">根据当前科目的知识点生成一组练习题。</p>
           <button
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50"
           >
-            {generateMutation.isPending ? "Generating..." : "Generate Quiz"}
+            {generateMutation.isPending ? "正在生成..." : "生成测验"}
           </button>
           {generateMutation.isError && (
-            <p className="text-red-500 text-sm mt-2">Failed to generate quiz</p>
+            <p className="text-red-500 text-sm mt-2">测验生成失败，请稍后重试。</p>
+          )}
+          {quizError && (
+            <p className="text-red-500 text-sm mt-2">{quizError}</p>
           )}
         </div>
       ) : currentIdx >= questions.length ? (
         <div className="bg-white rounded-xl border p-8 text-center">
-          <p className="text-2xl font-bold mb-2">Quiz Complete!</p>
-          <p className="text-gray-600">Score: {score} / {questions.length}</p>
+          <p className="text-2xl font-bold mb-2">测验完成</p>
+          <p className="text-gray-600">得分：{score} / {questions.length}</p>
           <button
             onClick={() => generateMutation.mutate()}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
           >
-            New Quiz
+            再来一组
           </button>
         </div>
       ) : (
         <div className="bg-white rounded-xl border p-6">
           <div className="text-sm text-gray-500 mb-2">
-            Question {currentIdx + 1} / {questions.length} · {current.type}
+            第 {currentIdx + 1} 题 / 共 {questions.length} 题 · {questionTypeLabel}
           </div>
           <div className="text-lg mb-6">{current.question}</div>
 
@@ -333,7 +375,10 @@ function QuizTab({ collection }: { collection: string }) {
 
           {current.type === "true_false" && (
             <div className="flex gap-2 mb-4">
-              {["True", "False"].map((opt) => (
+              {[
+                ["True", "正确"],
+                ["False", "错误"],
+              ].map(([opt, label]) => (
                 <button
                   key={opt}
                   onClick={() => { setSelected(opt); setShowAnswer(true); }}
@@ -347,7 +392,7 @@ function QuizTab({ collection }: { collection: string }) {
                       : "hover:bg-gray-50"
                   }`}
                 >
-                  {opt}
+                  {label}
                 </button>
               ))}
             </div>
@@ -360,14 +405,14 @@ function QuizTab({ collection }: { collection: string }) {
                 value={selected || ""}
                 onChange={(e) => setSelected(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && setShowAnswer(true)}
-                placeholder="Your answer..."
+                placeholder="输入你的答案..."
                 className="w-full px-4 py-2 border rounded-lg text-sm"
               />
               <button
                 onClick={() => setShowAnswer(true)}
                 className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
               >
-                Submit
+                提交
               </button>
             </div>
           )}
@@ -375,19 +420,19 @@ function QuizTab({ collection }: { collection: string }) {
           {showAnswer && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg">
               <div className="text-sm font-medium text-blue-900 mb-1">
-                Answer: {current.correct_answer}
+                参考答案：{displayAnswer(current.correct_answer)}
               </div>
               <div className="text-sm text-blue-700">{current.explanation}</div>
               <button
                 onClick={() => {
-                  if (selected === current.correct_answer) setScore((s) => s + 1);
+                  if (normalizeAnswer(selected) === normalizeAnswer(current.correct_answer)) setScore((s) => s + 1);
                   setCurrentIdx((i) => i + 1);
                   setSelected(null);
                   setShowAnswer(false);
                 }}
                 className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
               >
-                Next
+                下一题
               </button>
             </div>
           )}

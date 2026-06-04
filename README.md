@@ -24,7 +24,29 @@ src/ingestion/   文档摄取、分块、embedding、存储
 src/libs/        LLM、embedding、loader、vector store 等可插拔实现
 ```
 
-## 后端启动
+## 单端口启动（推荐部署）
+
+前端构建后由 FastAPI 直接托管，浏览器只需要打开一个地址：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+cd frontend
+npm install
+cd ..
+python scripts/start_web.py --build-frontend --host 0.0.0.0 --port 8000
+```
+
+访问：
+
+- Web 页面：`http://127.0.0.1:8000`
+- API 文档：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/api/health`
+
+说明：后端仍然需要监听一个端口，但前端和 API 共用这个端口，不再需要单独打开 Vite 的 `5173`。
+
+## 开发模式：后端启动
 
 ```powershell
 python -m venv .venv
@@ -38,7 +60,7 @@ python scripts/start_api.py --host 0.0.0.0 --port 8000
 - API 文档：`http://127.0.0.1:8000/docs`
 - 健康检查：`http://127.0.0.1:8000/api/health`
 
-## 前端启动
+## 开发模式：前端启动
 
 ```powershell
 cd frontend
@@ -105,4 +127,4 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 - `data/`、`logs/`、`.venv/`、`frontend/node_modules/` 不提交到 Git。
 - `config/settings.yaml` 不包含明文 Key。
 - 若端口对外开放，请在反向代理或平台侧配置 HTTPS、鉴权和跨域策略。
-- 生产环境建议把前端 `dist/` 交给 Nginx 或平台静态站点服务，后端单独运行 FastAPI。
+- 生产环境可使用 `scripts/start_web.py` 单端口托管前端和 API；也可以把前端 `dist/` 交给 Nginx 或平台静态站点服务，后端单独运行 FastAPI。

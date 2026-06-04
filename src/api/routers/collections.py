@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from src.api.dependencies import get_data_service
+from src.api.collection_names import display_collection, storage_collection
 
 router = APIRouter()
 
@@ -20,13 +21,14 @@ async def list_collections():
                 for key in ("document_count", "chunk_count", "image_count", "total_documents", "total_chunks", "total_images")
             ):
                 continue
-            result.append({"name": name, **stats})
+            result.append({"name": display_collection(name), "storage_name": name, **stats})
         except Exception:
-            result.append({"name": name})
+            result.append({"name": display_collection(name), "storage_name": name})
     return {"collections": result}
 
 
 @router.get("/{name}/stats")
 async def collection_stats(name: str):
     ds = get_data_service()
+    name = storage_collection(name)
     return ds.get_collection_stats(name)

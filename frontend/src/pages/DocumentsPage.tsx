@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, uploadFile } from "../api/client";
 import { useAppStore } from "../stores/appStore";
 import type { Collection, Document, IngestionProgress, PipelineResult } from "../api/types";
-import { Upload, Trash2, File, Plus } from "lucide-react";
+import { BookMarked, File, Plus, Trash2, Upload } from "lucide-react";
 
 export function DocumentsPage() {
   const queryClient = useQueryClient();
@@ -100,22 +100,32 @@ export function DocumentsPage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">复习资料</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-950">复习资料</h1>
+        <p className="mt-2 text-sm text-gray-500">按科目整理课件、教材和笔记，上传后会自动拆分为可检索的复习片段。</p>
+      </div>
 
-      {/* Upload section */}
-      <div className="bg-white rounded-xl border p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">上传资料</h2>
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="mb-6 rounded-xl border bg-white p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <BookMarked size={20} />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-950">添加课程资料</h2>
+            <p className="text-sm text-gray-500">支持 PDF、PPT、Word、图片和文本资料。</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
           <input
             ref={fileRef}
             type="file"
             accept=".pdf,.pptx,.txt,.md,.docx,.png,.jpg,.jpeg"
-            className="block text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            className="block text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
           />
           <select
             value={collection}
             onChange={(e) => handleSelectCollection(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm w-44 bg-white"
+            className="h-10 w-48 rounded-lg border bg-white px-3 text-sm text-gray-900"
           >
             {subjectOptions.map((subject) => (
               <option key={subject} value={subject}>{subject}</option>
@@ -124,7 +134,7 @@ export function DocumentsPage() {
           <button
             type="button"
             onClick={() => setAddingSubject((v) => !v)}
-            className="flex items-center gap-1 px-3 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+            className="flex h-10 items-center gap-1 rounded-lg border px-3 text-sm text-gray-700 hover:bg-gray-50"
           >
             <Plus size={15} />
             新科目
@@ -132,10 +142,10 @@ export function DocumentsPage() {
           <button
             onClick={handleUpload}
             disabled={uploading}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Upload size={16} />
-            {uploading ? "Uploading..." : "Upload"}
+            {uploading ? "正在解析" : "上传资料"}
           </button>
         </div>
 
@@ -158,7 +168,7 @@ export function DocumentsPage() {
               onClick={handleAddSubject}
               className="px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800"
             >
-              添加
+              添加科目
             </button>
           </div>
         )}
@@ -181,17 +191,21 @@ export function DocumentsPage() {
         {result && (
           <div className={`mt-4 p-3 rounded-lg text-sm ${result.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>
             {result.success
-              ? `Success: ${result.chunk_count} chunks, ${result.image_count} images`
-              : `Error: ${result.error}`}
+              ? `解析完成：生成 ${result.chunk_count} 个复习片段，识别 ${result.image_count} 张图片。`
+              : `上传失败：${result.error}`}
           </div>
         )}
       </div>
 
-      {/* Document list */}
-      <div className="bg-white rounded-xl border p-6">
-        <h2 className="text-lg font-semibold mb-4">已上传资料 ({documents.length})</h2>
+      <div className="rounded-xl border bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-950">当前科目资料 ({documents.length})</h2>
+          <span className="text-sm text-gray-500">{collection || "default"}</span>
+        </div>
         {documents.length === 0 ? (
-          <p className="text-gray-500 text-sm">当前科目还没有资料。</p>
+          <div className="rounded-lg bg-gray-50 p-6 text-center text-sm text-gray-500">
+            当前科目还没有资料。先上传一份课件或教材，助手才能基于资料回答问题。
+          </div>
         ) : (
           <div className="divide-y">
             {documents.map((doc) => (
@@ -201,7 +215,7 @@ export function DocumentsPage() {
                   <div>
                     <div className="font-medium text-sm">{doc.source_path.split(/[/\\]/).pop()}</div>
                     <div className="text-xs text-gray-500">
-                      {doc.chunk_count} chunks · {doc.image_count} images · {doc.processed_at?.slice(0, 19)}
+                      {doc.chunk_count} 个片段 · {doc.image_count} 张图片 · {doc.processed_at?.slice(0, 19)}
                     </div>
                   </div>
                 </div>

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from queue import Queue
+from threading import Thread
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 from src.api.dependencies import get_data_service, get_settings
+from src.api.collection_names import storage_collection
 from src.api.streaming import sse_event
 from src.core.settings import resolve_path
 
@@ -18,12 +21,14 @@ router = APIRouter()
 @router.get("")
 async def list_documents(collection: Optional[str] = None):
     ds = get_data_service()
+    collection = storage_collection(collection or "default")
     return {"documents": ds.list_documents(collection)}
 
 
 @router.get("/{doc_id}")
 async def get_document(doc_id: str, collection: Optional[str] = None):
     ds = get_data_service()
+    collection = storage_collection(collection or "default")
     detail = ds.get_document_detail(doc_id, collection)
     if detail is None:
         return {"error": "Document not found"}
@@ -33,18 +38,21 @@ async def get_document(doc_id: str, collection: Optional[str] = None):
 @router.get("/{doc_id}/chunks")
 async def get_document_chunks(doc_id: str, collection: Optional[str] = None):
     ds = get_data_service()
+    collection = storage_collection(collection or "default")
     return {"chunks": ds.get_chunks(doc_id, collection)}
 
 
 @router.get("/{doc_id}/images")
 async def get_document_images(doc_id: str, collection: Optional[str] = None):
     ds = get_data_service()
+    collection = storage_collection(collection or "default")
     return {"images": ds.get_images(doc_id, collection)}
 
 
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str, collection: str = "default"):
     ds = get_data_service()
+    collection = storage_collection(collection)
     chunks = ds.get_chunks(doc_id, collection)
     chunk_ids = [chunk.get("id") for chunk in chunks if chunk.get("id")]
     result = ds.delete_document(doc_id, collection, source_hash=doc_id)
@@ -83,6 +91,7 @@ async def upload_document(
     collection: str = Form("default"),
 ):
     """Upload a file and run ingestion. Returns SSE stream of progress events."""
+    collection = storage_collection(collection)
     suffix = Path(file.filename).suffix
     original_name = Path(file.filename or f"upload{suffix}").name
     safe_name = "".join(ch if ch.isalnum() or ch in "._- ()[]" else "_" for ch in original_name)
@@ -97,23 +106,56 @@ async def upload_document(
         file_path = str(upload_path)
 
         def event_stream():
-            stages = []
-            try:
-                def on_progress(stage_name: str, current: int, total: int):
-                    stages.append({"stage": stage_name, "current": current, "total": total})
+            events: Queue[tuple[str, object]] = Queue()
 
-                from src.ingestion.pipeline import IngestionPipeline
-                settings = get_settings()
-                pipeline = IngestionPipeline(settings, collection=collection)
+            def run_pipeline() -> None:
+                try:
+                    def on_progress(stage_name: str, current: int, total: int):
+                        events.put(("progress", {"stage": stage_name, "current": current, "total": total}))
 
-                result = pipeline.run(file_path, on_progress=on_progress)
+                    from src.core.trace.trace_context import TraceContext
+                    from src.ingestion.pipeline import IngestionPipeline
+                    from src.observability.logger import write_trace
 
-                for s in stages:
-                    yield sse_event("progress", s)
+                    settings = get_settings()
+                    pipeline = IngestionPipeline(settings, collection=collection)
+                    trace = TraceContext(
+                        trace_type="ingestion",
+                        metadata={
+                            "collection": collection,
+                            "file_path": file_path,
+                            "file_name": safe_name,
+                        },
+                    )
 
-                yield sse_event("complete", result.to_dict())
-            except Exception as exc:
-                yield sse_event("error", {"error": str(exc)})
+                    result = pipeline.run(file_path, trace=trace, on_progress=on_progress)
+                    trace.metadata.update({
+                        "success": result.success,
+                        "doc_id": result.doc_id,
+                        "chunk_count": result.chunk_count,
+                        "image_count": result.image_count,
+                        "error": result.error,
+                    })
+                    trace.finish()
+                    write_trace(trace.to_dict())
+                    events.put(("complete", result.to_dict()))
+                except Exception as exc:
+                    try:
+                        trace.metadata.update({"success": False, "error": str(exc)})
+                        trace.finish()
+                        write_trace(trace.to_dict())
+                    except Exception:
+                        pass
+                    events.put(("error", {"error": str(exc)}))
+
+            worker = Thread(target=run_pipeline, daemon=True)
+            worker.start()
+
+            while True:
+                event, payload = events.get()
+                yield sse_event(event, payload)
+                if event in {"complete", "error"}:
+                    break
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
     except Exception as exc:

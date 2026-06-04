@@ -22,6 +22,8 @@ from src.observability.logger import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_MAX_WORKERS = 5
+MAX_RULE_KPS_PER_CHUNK = 2
+MAX_LLM_KPS_PER_CHUNK = 2
 GENERIC_KP_PATTERNS = (
     "目录",
     "谢谢",
@@ -314,7 +316,10 @@ class KnowledgePointExtractor(BaseTransform):
                 seen.add(key)
                 unique_kps.append(kp)
 
-        return unique_kps
+        return sorted(
+            unique_kps,
+            key=lambda item: (-int(item.get("importance", 0) or 0), len(item.get("text", ""))),
+        )[:MAX_RULE_KPS_PER_CHUNK]
 
     def _infer_topic(self, text: str) -> str:
         for line in text.splitlines()[:20]:
@@ -450,7 +455,10 @@ class KnowledgePointExtractor(BaseTransform):
                     "exam_focus": self._clean_kp_text(str(raw.get("exam_focus", ""))) or self._default_exam_focus(raw.get("category", "general")),
                 })
 
-            return kps
+            return sorted(
+                kps,
+                key=lambda item: (-int(item.get("importance", 0) or 0), len(item.get("text", ""))),
+            )[:MAX_LLM_KPS_PER_CHUNK]
 
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Failed to parse LLM KP response: {e}")

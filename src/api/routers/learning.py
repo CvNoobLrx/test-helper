@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Dict, List, Optional
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from src.api.dependencies import get_settings
+from src.api.collection_names import storage_collection
 
 router = APIRouter()
 
@@ -112,13 +114,14 @@ def _dedupe_knowledge_points(kps: List[dict]) -> List[dict]:
     )
 
 
-def _existing_chunk_ids(collection: str) -> set[str]:
+def _existing_content_refs(collection: str) -> tuple[set[str], set[str]]:
     try:
         from src.api.dependencies import get_data_service
 
         ds = get_data_service()
         docs = ds.list_documents(collection)
         chunk_ids: set[str] = set()
+        source_refs: set[str] = set()
         for doc in docs:
             source_hash = doc.get("source_hash")
             if not source_hash:
@@ -127,27 +130,87 @@ def _existing_chunk_ids(collection: str) -> set[str]:
                 cid = chunk.get("id")
                 if cid:
                     chunk_ids.add(cid)
-        return chunk_ids
+                metadata = chunk.get("metadata") or {}
+                source_ref = metadata.get("source_ref")
+                if source_ref:
+                    source_refs.add(str(source_ref))
+        return chunk_ids, source_refs
     except Exception:
-        return set()
+        return set(), set()
+
+
+def _existing_chunk_ids(collection: str) -> set[str]:
+    chunk_ids, _source_refs = _existing_content_refs(collection)
+    return chunk_ids
 
 
 def _filter_existing_knowledge_points(kps: List[dict], collection: str) -> List[dict]:
-    existing_chunks = _existing_chunk_ids(collection)
-    if not existing_chunks:
+    existing_chunks, existing_sources = _existing_content_refs(collection)
+    if not existing_chunks and not existing_sources:
         return []
     return [
         kp for kp in kps
-        if not kp.get("chunk_id") or kp.get("chunk_id") in existing_chunks
+        if kp.get("chunk_id") in existing_chunks
+        or str(kp.get("source_ref") or "") in existing_sources
     ]
 
 
-def _sync_mastery_records(collection: str) -> None:
+def _prioritize_knowledge_points(
+    kps: List[dict],
+    max_items: int = 60,
+    max_per_topic: int = 8,
+) -> List[dict]:
+    """Keep the learning page focused on review-level points, not every fragment."""
+    grouped: Dict[str, List[dict]] = {}
+    for kp in kps:
+        topic = str(kp.get("topic") or "综合考点").strip() or "综合考点"
+        grouped.setdefault(topic, []).append(kp)
+
+    selected: List[dict] = []
+    for topic in sorted(grouped):
+        items = sorted(
+            grouped[topic],
+            key=lambda item: (
+                -int(item.get("importance", 0) or 0),
+                len(_kp_text(item)),
+            ),
+        )
+        selected.extend(items[:max_per_topic])
+
+    return sorted(
+        selected,
+        key=lambda item: (
+            str(item.get("topic", "")),
+            -int(item.get("importance", 0) or 0),
+            str(item.get("subtopic", "")),
+        ),
+    )[:max_items]
+
+
+def _current_knowledge_points(collection: str) -> List[dict]:
     idx = _get_kp_index(collection)
+    filtered = _filter_existing_knowledge_points(
+        _dedupe_knowledge_points(idx.get_by_collection(collection)),
+        collection,
+    )
+    return _prioritize_knowledge_points(filtered)
+
+
+def _sync_mastery_records(collection: str) -> None:
     store = _get_mastery_store(collection)
     from src.core.types import MasteryRecord
 
-    for kp in _dedupe_knowledge_points(idx.get_by_collection(collection)):
+    kps = _current_knowledge_points(collection)
+    valid_ids = {kp.get("id") for kp in kps if kp.get("id")}
+    stale_ids = [
+        record.knowledge_point_id
+        for record in store.get_all_records(collection)
+        if record.knowledge_point_id not in valid_ids
+    ]
+    if stale_ids:
+        store.remove_records(stale_ids, collection)
+
+    for kp in kps:
         kp_id = kp.get("id")
         if kp_id and store.get_record(kp_id, collection) is None:
             store.update_record(MasteryRecord(knowledge_point_id=kp_id, collection=collection))
@@ -155,6 +218,7 @@ def _sync_mastery_records(collection: str) -> None:
 
 @router.get("/mastery")
 async def get_mastery(collection: str = "default"):
+    collection = storage_collection(collection)
     _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
     stats = store.get_stats(collection)
@@ -163,24 +227,24 @@ async def get_mastery(collection: str = "default"):
 
 @router.get("/knowledge-points")
 async def list_knowledge_points(collection: str = "default"):
-    idx = _get_kp_index(collection)
-    kps = _filter_existing_knowledge_points(
-        _dedupe_knowledge_points(idx.get_by_collection(collection)),
-        collection,
-    )
+    collection = storage_collection(collection)
+    kps = _current_knowledge_points(collection)
     return {"knowledge_points": kps}
 
 
 @router.get("/review-plan")
 async def get_review_plan(collection: str = "default", max_items: int = 10):
+    collection = storage_collection(collection)
     _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
-    idx = _get_kp_index(collection)
     kps_by_id = {
         kp.get("id"): kp
-        for kp in _dedupe_knowledge_points(idx.get_by_collection(collection))
+        for kp in _current_knowledge_points(collection)
     }
-    due = store.get_due_items(collection)[:max_items]
+    due = [
+        item for item in store.get_due_items(collection)
+        if item.knowledge_point_id in kps_by_id
+    ][:max_items]
     from dataclasses import asdict
     review_items = []
     for item in due:
@@ -197,8 +261,8 @@ async def get_review_plan(collection: str = "default", max_items: int = 10):
 
 @router.post("/quiz/generate")
 async def generate_quiz(req: QuizRequest):
-    idx = _get_kp_index(req.collection)
-    kps = idx.get_by_collection(req.collection)
+    collection = storage_collection(req.collection)
+    kps = _current_knowledge_points(collection)
     if not kps:
         return {"questions": [], "error": "No knowledge points found"}
 
@@ -206,21 +270,30 @@ async def generate_quiz(req: QuizRequest):
     prompt_path = resolve_path("config/prompts/quiz_generation.txt")
     prompt_template = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
 
-    kps = _dedupe_knowledge_points(kps)
     kp_text = "\n".join(f"- {_kp_text(kp)}" for kp in kps[:20])
     prompt = prompt_template.replace("{{knowledge_points}}", kp_text)
     prompt = prompt.replace("{{num_questions}}", str(req.num_questions))
     prompt = prompt.replace("{{difficulty}}", req.difficulty)
 
     try:
-        from src.libs.llm.llm_factory import LLMFactory
+        from src.libs.llm import LLMFactory, Message
+
         settings = get_settings()
         llm = LLMFactory.create(settings)
-        import asyncio
-        response = asyncio.run(llm.generate(prompt))
-
-        import json
-        questions = json.loads(response)
+        response = llm.chat(
+            [Message(role="user", content=prompt)],
+            temperature=0.0,
+            max_tokens=1200,
+        )
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```$", "", raw).strip()
+        questions = json.loads(raw)
+        if isinstance(questions, dict):
+            questions = questions.get("questions", [])
+        if not isinstance(questions, list):
+            return {"questions": [], "error": "Quiz response is not a list"}
         return {"questions": questions}
     except Exception as exc:
         return {"questions": [], "error": str(exc)}
@@ -228,15 +301,16 @@ async def generate_quiz(req: QuizRequest):
 
 @router.post("/review/submit")
 async def submit_review(req: ReviewSubmitRequest):
-    store = _get_mastery_store(req.collection)
+    collection = storage_collection(req.collection)
+    store = _get_mastery_store(collection)
     from src.core.types import MasteryRecord
     from src.ingestion.storage.spaced_repetition import calculate_next_review
 
-    existing = store.get_record(req.knowledge_point_id, req.collection)
+    existing = store.get_record(req.knowledge_point_id, collection)
     if existing is None:
         existing = MasteryRecord(
             knowledge_point_id=req.knowledge_point_id,
-            collection=req.collection,
+            collection=collection,
         )
 
     settings = get_settings()
@@ -253,6 +327,7 @@ async def submit_review(req: ReviewSubmitRequest):
 
 @router.get("/stats")
 async def get_stats(collection: str = "default"):
+    collection = storage_collection(collection)
     _sync_mastery_records(collection)
     store = _get_mastery_store(collection)
     stats = store.get_stats(collection)

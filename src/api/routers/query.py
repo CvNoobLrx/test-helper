@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.api.dependencies import get_settings
+from src.api.collection_names import storage_collection
 from src.api.streaming import sse_event
 
 router = APIRouter()
@@ -106,6 +107,7 @@ async def query_knowledge(req: QueryRequest):
     """Non-streaming RAG query."""
     from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 
+    collection = storage_collection(req.collection)
     settings = get_settings()
     tool = QueryKnowledgeHubTool(settings=settings)
     tool.config.enable_rerank = req.enable_rerank
@@ -113,7 +115,7 @@ async def query_knowledge(req: QueryRequest):
     response = await tool.execute(
         query=req.query,
         top_k=req.top_k,
-        collection=req.collection,
+        collection=collection,
     )
     citations = [_citation_to_dict(c, i) for i, c in enumerate(response.citations)]
     answer, answer_meta = _generate_answer(req.query, citations, response.content)
@@ -133,6 +135,7 @@ async def query_stream(req: QueryRequest):
 
     def event_stream():
         try:
+            collection = storage_collection(req.collection)
             settings = get_settings()
             tool = QueryKnowledgeHubTool(settings=settings)
             tool.config.enable_rerank = req.enable_rerank
@@ -143,7 +146,7 @@ async def query_stream(req: QueryRequest):
             response = asyncio.run(tool.execute(
                 query=req.query,
                 top_k=req.top_k,
-                collection=req.collection,
+                collection=collection,
             ))
 
             citations = [_citation_to_dict(c, i) for i, c in enumerate(response.citations)]
