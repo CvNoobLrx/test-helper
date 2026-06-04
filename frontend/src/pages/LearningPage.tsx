@@ -86,15 +86,15 @@ function OverviewTab({ collection, onStartReview }: { collection: string; onStar
             <div className="text-sm text-gray-500 mb-1">全部知识点</div>
             <div className="text-2xl font-bold">{stats.total}</div>
           </div>
-          <div className="bg-green-50 rounded-xl border border-green-200 p-5">
+          <div className="bg-green-50 rounded-xl border border-green-200 p-5" title="至少复习 2 次、正确率较高且复习间隔已拉开的知识点">
             <div className="text-sm text-green-600 mb-1">已掌握</div>
             <div className="text-2xl font-bold text-green-700">{stats.mastered}</div>
           </div>
-          <div className="bg-yellow-50 rounded-xl border border-yellow-200 p-5">
+          <div className="bg-yellow-50 rounded-xl border border-yellow-200 p-5" title="已经复习过，但还没有达到稳定掌握标准的知识点">
             <div className="text-sm text-yellow-600 mb-1">学习中</div>
             <div className="text-2xl font-bold text-yellow-700">{stats.learning}</div>
           </div>
-          <div className="bg-red-50 rounded-xl border border-red-200 p-5">
+          <div className="bg-red-50 rounded-xl border border-red-200 p-5" title="还没复习过，或近期回忆效果较差的知识点">
             <div className="text-sm text-red-600 mb-1">需复习</div>
             <div className="text-2xl font-bold text-red-700">{stats.needs_review}</div>
           </div>

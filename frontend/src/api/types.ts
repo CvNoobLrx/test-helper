@@ -63,10 +63,16 @@ export interface Trace {
   trace_id: string;
   trace_type: string;
   started_at: string;
+  finished_at?: string;
+  total_elapsed_ms?: number;
+  raw_stage_count?: number;
   stages?: Array<{
     stage: string;
+    label?: string;
+    status?: string;
     timestamp: string;
     elapsed_ms: number;
+    summary?: string;
     data: Record<string, unknown>;
   }>;
   metadata?: Record<string, unknown>;

@@ -105,6 +105,11 @@ def _generate_answer(query: str, citations: list[dict], fallback: str) -> tuple[
 @router.post("")
 async def query_knowledge(req: QueryRequest):
     """Non-streaming RAG query."""
+    return await run_rag_query(req)
+
+
+async def run_rag_query(req: QueryRequest) -> dict:
+    """Run the shared RAG query pipeline used by native and compatible APIs."""
     from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 
     collection = storage_collection(req.collection)

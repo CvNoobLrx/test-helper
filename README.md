@@ -43,6 +43,7 @@ python scripts/start_web.py --build-frontend --host 0.0.0.0 --port 8000
 - Web 页面：`http://127.0.0.1:8000`
 - API 文档：`http://127.0.0.1:8000/docs`
 - 健康检查：`http://127.0.0.1:8000/api/health`
+- OpenAI-compatible Chat：`http://127.0.0.1:8000/v1/chat/completions`
 
 说明：后端仍然需要监听一个端口，但前端和 API 共用这个端口，不再需要单独打开 Vite 的 `5173`。
 
@@ -101,6 +102,88 @@ Linux：
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
+```
+
+## OpenAI-compatible 接口
+
+项目提供兼容 OpenAI Chat Completions 格式的入口，便于接入 Coze、n8n 或其他 Agent 平台：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/v1/chat/completions `
+  -H "Content-Type: application/json" `
+  -d "{\"model\":\"final-review-rag\",\"stream\":false,\"collection\":\"default\",\"messages\":[{\"role\":\"user\",\"content\":\"资料库里有哪些高频考点？\"}]}"
+```
+
+常用字段：
+
+- `messages`：OpenAI 标准消息列表，最后一条用户消息作为问题。
+- `collection`：资料库名称。
+- `top_k`：返回引用片段数量，默认 `5`。
+- `enable_rerank`：是否开启深度筛选，默认 `true`。
+- `stream`：设为 `true` 时返回 SSE，格式为 `data: {...}`，结束为 `data: [DONE]`。
+
+模型列表：
+
+```powershell
+curl http://127.0.0.1:8000/v1/models
+```
+
+## 访问保护与限流
+
+默认不启用认证，方便本地开发。部署到公网或平台回调时建议设置：
+
+```powershell
+$env:FINAL_REVIEW_API_KEYS="your-service-key"
+$env:FINAL_REVIEW_RATE_LIMIT_PER_MINUTE="30"
+```
+
+请求时携带：
+
+```text
+Authorization: Bearer your-service-key
+```
+
+也可以使用：
+
+```text
+X-API-Key: your-service-key
+```
+
+说明：
+
+- `FINAL_REVIEW_API_KEYS` 支持逗号分隔多个 key。
+- 设置 `FINAL_REVIEW_AUTH_ENABLED=1` 可强制开启认证。
+- `FINAL_REVIEW_RATE_LIMIT_PER_MINUTE` 为单进程内每分钟限流；多进程或多服务器部署时建议在网关层再做限流。
+
+## 预热和性能检查
+
+手动预热 embedding、向量库和 BM25：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/runtime/warmup `
+  -H "Content-Type: application/json" `
+  -d "{\"collection\":\"default\"}"
+```
+
+查看运行状态：
+
+```powershell
+curl http://127.0.0.1:8000/api/runtime/status
+```
+
+做一次轻量 RAG 性能测试：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/runtime/benchmark `
+  -H "Content-Type: application/json" `
+  -d "{\"query\":\"这门课有哪些重点？\",\"collection\":\"default\",\"enable_rerank\":false}"
+```
+
+部署时如需启动后自动预热：
+
+```powershell
+$env:FINAL_REVIEW_AUTO_WARMUP="1"
+$env:FINAL_REVIEW_WARMUP_COLLECTION="default"
 ```
 
 ## 下载 embedding 模型

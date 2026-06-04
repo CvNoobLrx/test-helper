@@ -170,12 +170,12 @@ class MasteryStore:
         for r in records:
             if r.review_count == 0:
                 needs_review += 1
-            elif r.correct_rate >= 0.8:
-                mastered += 1
-            elif r.correct_rate >= 0.5:
-                learning += 1
-            else:
+            elif r.correct_rate < 0.5:
                 needs_review += 1
+            elif r.review_count >= 2 and r.correct_rate >= 0.8 and r.interval_days >= 6:
+                mastered += 1
+            else:
+                learning += 1
 
         return {
             "total": len(records),

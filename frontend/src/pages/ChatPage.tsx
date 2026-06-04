@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, MessageSquarePlus, Send, Trash2, UserRound } from "lucide-react";
+import { Bot, HelpCircle, MessageSquarePlus, Send, Trash2, UserRound } from "lucide-react";
 import { api, streamQuery } from "../api/client";
 import type { Citation, Collection } from "../api/types";
 import { useAppStore } from "../stores/appStore";
@@ -250,15 +250,33 @@ export function ChatPage() {
                   )}
                 </select>
               </label>
-              <label className="flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  checked={enableRerank}
-                  onChange={(e) => setEnableRerank(e.target.checked)}
-                  disabled={isStreaming}
-                />
-                深度筛选
-              </label>
+              <div className="group relative flex items-center gap-1">
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={enableRerank}
+                    onChange={(e) => setEnableRerank(e.target.checked)}
+                    disabled={isStreaming}
+                  />
+                  深度筛选
+                </label>
+                <button
+                  type="button"
+                  aria-label="查看深度筛选说明"
+                  className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <HelpCircle size={15} />
+                </button>
+                <div className="pointer-events-none absolute right-0 top-full z-40 mt-2 hidden w-72 rounded-lg border bg-white p-3 text-xs leading-5 text-gray-600 shadow-lg group-hover:block group-focus-within:block">
+                  <div className="mb-1 text-sm font-medium text-gray-900">深度筛选有什么用？</div>
+                  <p>
+                    开启后，系统会先检索更多候选片段，再让大模型按问题相关性重新排序，优先保留更适合作答和引用的内容。
+                  </p>
+                  <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-amber-700">
+                    代价：会多一次大模型筛选步骤，回答通常更慢，并增加 API 调用消耗。
+                  </div>
+                </div>
+              </div>
               <button
                 onClick={startNewChat}
                 className="rounded-lg border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 md:hidden"
