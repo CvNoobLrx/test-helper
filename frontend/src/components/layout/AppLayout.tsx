@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { AlertCircle, CheckCircle2, LoaderCircle, Upload, X } from "lucide-react";
 import { Sidebar } from "./Sidebar";
@@ -18,6 +19,15 @@ export function AppLayout() {
 function GlobalUploadStatus() {
   const upload = useAppStore((s) => s.upload);
   const clearUpload = useAppStore((s) => s.clearUpload);
+
+  useEffect(() => {
+    if (!upload.result?.success) {
+      return;
+    }
+
+    const timer = window.setTimeout(clearUpload, 2500);
+    return () => window.clearTimeout(timer);
+  }, [clearUpload, upload.result?.success]);
 
   if (!upload.uploading && !upload.result) {
     return null;
@@ -65,6 +75,13 @@ function GlobalUploadStatus() {
             aria-label="正在解析"
           >
             <LoaderCircle size={20} className="animate-spin" />
+          </div>
+        ) : upload.result?.success ? (
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-green-600"
+            aria-label="解析完成"
+          >
+            <CheckCircle2 size={20} />
           </div>
         ) : (
           <button
