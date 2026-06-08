@@ -52,6 +52,16 @@ vision_llm:
   max_image_size: 2048  # Max dimension (width/height) for image compression
 
 # =============================================================================
+# OCR Configuration (optional PDF fallback)
+# =============================================================================
+ocr:
+  mode: "auto"  # Options: off, auto, always
+  provider: "rapidocr"  # Lightweight ONNXRuntime OCR backend
+  dpi: 180
+  min_text_chars_per_page: 30
+  max_pages: null
+
+# =============================================================================
 # Vector Store Configuration
 # =============================================================================
 vector_store:

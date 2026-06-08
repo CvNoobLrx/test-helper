@@ -55,6 +55,7 @@ class ImageLoader(BaseLoader):
         vision_llm: Optional[BaseVisionLLM] = None,
         image_storage_dir: str | Path = "data/images",
         prompt: Optional[str] = None,
+        extract_images: bool = True,
     ):
         self.vision_llm = vision_llm
         self.image_storage_dir = Path(image_storage_dir)

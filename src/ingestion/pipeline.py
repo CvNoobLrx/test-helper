@@ -270,10 +270,15 @@ class IngestionPipeline:
             )
             loader = getattr(self, "loader", None)
             if loader is None:
+                loader_kwargs: Dict[str, Any] = {
+                    "extract_images": True,
+                    "image_storage_dir": image_storage_dir,
+                }
+                if file_path.suffix.lower() == ".pdf":
+                    loader_kwargs["ocr_settings"] = getattr(self.settings, "ocr", None)
                 loader = LoaderFactory.create(
                     file_path,
-                    extract_images=True,
-                    image_storage_dir=image_storage_dir,
+                    **loader_kwargs,
                 )
             document = loader.load(str(file_path))
             _elapsed = (time.monotonic() - _t0) * 1000.0
@@ -289,14 +294,19 @@ class IngestionPipeline:
             stages["loading"] = {
                 "doc_id": document.id,
                 "text_length": len(document.text),
-                "image_count": image_count
+                "image_count": image_count,
+                "ocr_used": bool(document.metadata.get("ocr_used")),
+                "ocr_pages": len(document.metadata.get("ocr_pages", [])),
             }
             if trace is not None:
                 trace.record_stage("load", {
-                    "method": "markitdown",
+                    "method": "markitdown+ocr" if document.metadata.get("ocr_used") else "markitdown",
                     "doc_id": document.id,
                     "text_length": len(document.text),
                     "image_count": image_count,
+                    "ocr_used": bool(document.metadata.get("ocr_used")),
+                    "ocr_provider": document.metadata.get("ocr_provider", ""),
+                    "ocr_pages": document.metadata.get("ocr_pages", []),
                     "text_preview": document.text,
                 }, elapsed_ms=_elapsed)
             
