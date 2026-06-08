@@ -12,7 +12,7 @@ llm:
   deployment_name: "astron-code-latest"
   azure_endpoint: ""
   api_version: ""
-  api_key: ""
+  api_key: "c92162bc2f306120571be8777a648c71:NjFjOThkN2FmZmJhZDRjYzIwM2VkMzg0"
   temperature: 0.0
   max_tokens: 4096
 
@@ -31,7 +31,7 @@ embedding:
   azure_endpoint: ""
   deployment_name: "astron-code-latest"
   api_version: ""
-  api_key: ""
+  api_key: "c92162bc2f306120571be8777a648c71:NjFjOThkN2FmZmJhZDRjYzIwM2VkMzg0"
   # API keys should be provided through environment variables.
 
 # =============================================================================
@@ -46,7 +46,7 @@ vision_llm:
   azure_endpoint: ""
   deployment_name: "astron-code-latest"
   api_version: ""
-  api_key: ""
+  api_key: "c92162bc2f306120571be8777a648c71:NjFjOThkN2FmZmJhZDRjYzIwM2VkMzg0"
   # Ollama-specific settings (if provider is ollama):
   # base_url: "http://localhost:11434"
   max_image_size: 2048  # Max dimension (width/height) for image compression

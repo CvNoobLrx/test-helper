@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 
 @dataclass
@@ -99,3 +99,19 @@ class BaseLLM(ABC):
                 )
             if not msg.content or not msg.content.strip():
                 raise ValueError(f"Message at index {i} has empty content")
+
+    def stream_chat(
+        self,
+        messages: List[Message],
+        trace: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """Stream a chat completion as text chunks.
+
+        Providers that do not support native streaming fall back to a single
+        full-response chunk. OpenAI-compatible providers should override this
+        method for token-level streaming.
+        """
+        response = self.chat(messages, trace=trace, **kwargs)
+        if response.content:
+            yield response.content

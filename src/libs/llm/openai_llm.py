@@ -7,8 +7,9 @@ endpoints by configuring the base_url.
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
 
@@ -227,6 +228,97 @@ class OpenAILLM(BaseLLM):
         except httpx.RequestError as e:
             raise OpenAILLMError(
                 f"[OpenAI] Connection failed: {type(e).__name__}: {e}"
+            ) from e
+
+    def stream_chat(
+        self,
+        messages: List[Message],
+        trace: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """Stream a chat completion using OpenAI-compatible SSE chunks."""
+        self.validate_messages(messages)
+
+        temperature = kwargs.get("temperature", self.default_temperature)
+        max_tokens = kwargs.get("max_tokens", self.default_max_tokens)
+        model = kwargs.get("model", self.model)
+        api_messages = [{"role": m.role, "content": m.content} for m in messages]
+
+        try:
+            yield from self._stream_api(
+                messages=api_messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            if isinstance(e, OpenAILLMError):
+                raise
+            raise OpenAILLMError(
+                f"[OpenAI] streaming API call failed: {type(e).__name__}: {e}"
+            ) from e
+
+    def _stream_api(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> Iterator[str]:
+        import httpx
+
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        if self.api_version:
+            url += f"?api-version={self.api_version}"
+
+        if self._use_azure_auth:
+            headers = {
+                "api-key": self.api_key,
+                "Content-Type": "application/json",
+            }
+        else:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                with client.stream("POST", url, json=payload, headers=headers) as response:
+                    if response.status_code != 200:
+                        body = response.read().decode("utf-8", errors="ignore")
+                        raise OpenAILLMError(
+                            f"[OpenAI] streaming API error (HTTP {response.status_code}): {body}"
+                        )
+
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data:"):
+                            line = line[5:].strip()
+                        if not line or line == "[DONE]":
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        for choice in data.get("choices", []):
+                            delta = choice.get("delta") or {}
+                            content = delta.get("content")
+                            if content:
+                                yield str(content)
+        except httpx.TimeoutException as e:
+            raise OpenAILLMError("[OpenAI] streaming request timed out after 120 seconds") from e
+        except httpx.RequestError as e:
+            raise OpenAILLMError(
+                f"[OpenAI] streaming connection failed: {type(e).__name__}: {e}"
             ) from e
     
     def _parse_error_response(self, response: Any) -> str:

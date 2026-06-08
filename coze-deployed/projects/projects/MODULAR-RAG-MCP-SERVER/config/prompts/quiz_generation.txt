@@ -1,0 +1,25 @@
+请根据以下知识点生成复习题目。
+
+知识点列表：
+{knowledge_points}
+
+要求：
+1. 生成 {num_questions} 道题目
+2. 难度等级：{difficulty}
+3. 题目类型混合：选择题（mcq）、简答题（short_answer）、判断题（true_false）
+4. 选择题需要4个选项（A/B/C/D），其中只有1个正确答案
+5. 每道题都需要提供正确答案和简要解释
+6. 题目应该测试对知识点的理解，而非简单的记忆
+
+请严格按照以下JSON格式输出，不要包含其他内容：
+[
+  {{
+    "knowledge_point_id": "对应知识点ID",
+    "question_type": "mcq或short_answer或true_false",
+    "question_text": "题目内容",
+    "options": ["A. 选项1", "B. 选项2", "C. 选项3", "D. 选项4"],
+    "correct_answer": "正确答案",
+    "explanation": "解释"
+  }},
+  ...
+]
