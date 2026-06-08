@@ -168,6 +168,15 @@ class VisionLLMSettings:
 
 
 @dataclass(frozen=True)
+class OCRSettings:
+    mode: str = "auto"
+    provider: str = "rapidocr"
+    dpi: int = 180
+    min_text_chars_per_page: int = 30
+    max_pages: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class IngestionSettings:
     chunk_size: int
     chunk_overlap: int
@@ -197,6 +206,7 @@ class Settings:
     observability: ObservabilitySettings
     ingestion: Optional[IngestionSettings] = None
     vision_llm: Optional[VisionLLMSettings] = None
+    ocr: Optional[OCRSettings] = None
     mastery: Optional[MasterySettings] = None
 
     @classmethod
@@ -238,6 +248,52 @@ class Settings:
                 azure_endpoint=vision_llm.get("azure_endpoint"),
                 deployment_name=vision_llm.get("deployment_name"),
                 base_url=vision_llm.get("base_url"),
+            )
+
+        ocr_settings = OCRSettings()
+        if "ocr" in data:
+            ocr = _require_mapping(data, "ocr", "settings")
+            ocr_mode = str(ocr.get("mode", OCRSettings.mode)).strip().lower()
+            if ocr_mode not in {"off", "auto", "always"}:
+                raise SettingsError("ocr.mode must be one of: off, auto, always")
+
+            ocr_provider = str(ocr.get("provider", OCRSettings.provider)).strip().lower()
+            if ocr_provider != "rapidocr":
+                raise SettingsError("ocr.provider currently supports only: rapidocr")
+
+            try:
+                ocr_dpi = int(ocr.get("dpi", OCRSettings.dpi))
+                min_text_chars = int(
+                    ocr.get(
+                        "min_text_chars_per_page",
+                        OCRSettings.min_text_chars_per_page,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                raise SettingsError("ocr.dpi and ocr.min_text_chars_per_page must be integers") from exc
+
+            if ocr_dpi <= 0:
+                raise SettingsError("ocr.dpi must be a positive integer")
+            if min_text_chars < 0:
+                raise SettingsError("ocr.min_text_chars_per_page must be >= 0")
+
+            max_pages_value = ocr.get("max_pages", None)
+            if max_pages_value is None or max_pages_value == "" or max_pages_value == 0:
+                max_pages = None
+            else:
+                try:
+                    max_pages = int(max_pages_value)
+                except (TypeError, ValueError) as exc:
+                    raise SettingsError("ocr.max_pages must be an integer or null") from exc
+                if max_pages <= 0:
+                    raise SettingsError("ocr.max_pages must be positive when set")
+
+            ocr_settings = OCRSettings(
+                mode=ocr_mode,
+                provider=ocr_provider,
+                dpi=ocr_dpi,
+                min_text_chars_per_page=min_text_chars,
+                max_pages=max_pages,
             )
 
         mastery_settings = None
@@ -302,6 +358,7 @@ class Settings:
             ),
             ingestion=ingestion_settings,
             vision_llm=vision_llm_settings,
+            ocr=ocr_settings,
             mastery=mastery_settings,
         )
 

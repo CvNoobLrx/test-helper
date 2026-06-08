@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, uploadFile } from "../api/client";
 import { useAppStore } from "../stores/appStore";
-import type { Collection, Document, DocumentPreview, IngestionProgress, PipelineResult } from "../api/types";
+import type { Collection, Document, DocumentPreview, PipelineResult } from "../api/types";
 import { BookMarked, Download, ExternalLink, Eye, File, FileText, Plus, Trash2, Upload, X } from "lucide-react";
 
 type PreviewMode = "original" | "markdown";
@@ -27,13 +27,14 @@ export function DocumentsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const selectedCollection = useAppStore((s) => s.selectedCollection);
   const setSelectedCollection = useAppStore((s) => s.setCollection);
+  const upload = useAppStore((s) => s.upload);
+  const startUpload = useAppStore((s) => s.startUpload);
+  const setUploadProgress = useAppStore((s) => s.setUploadProgress);
+  const finishUpload = useAppStore((s) => s.finishUpload);
   const [collection, setCollection] = useState(selectedCollection);
   const [localSubjects, setLocalSubjects] = useState<string[]>([]);
   const [newSubject, setNewSubject] = useState("");
   const [addingSubject, setAddingSubject] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<IngestionProgress | null>(null);
-  const [result, setResult] = useState<PipelineResult | null>(null);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("original");
   const [originalText, setOriginalText] = useState("");
@@ -110,21 +111,21 @@ export function DocumentsPage() {
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) return;
-    setUploading(true);
-    setProgress(null);
-    setResult(null);
+    const targetCollection = collection.trim() || "default";
+    startUpload(file.name, targetCollection);
 
     await uploadFile(
       file,
-      collection,
-      (p) => setProgress(p),
-      (r) => { setResult(r as PipelineResult); setUploading(false); },
-      (e) => { setResult({ success: false, error: e } as PipelineResult); setUploading(false); }
+      targetCollection,
+      (p) => setUploadProgress(p),
+      (r) => finishUpload(r as PipelineResult),
+      (e) => finishUpload({ success: false, error: e } as PipelineResult)
     );
 
-    setSelectedCollection(collection.trim() || "default");
+    setSelectedCollection(targetCollection);
     queryClient.invalidateQueries({ queryKey: ["documents"] });
     queryClient.invalidateQueries({ queryKey: ["collections"] });
+    queryClient.invalidateQueries({ queryKey: ["document-preview"] });
   };
 
   const handlePreview = (doc: Document) => {
@@ -226,11 +227,11 @@ export function DocumentsPage() {
           </button>
           <button
             onClick={handleUpload}
-            disabled={uploading}
+            disabled={upload.uploading}
             className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Upload size={16} />
-            {uploading ? "正在解析" : "上传资料"}
+            {upload.uploading ? "正在解析" : "上传资料"}
           </button>
         </div>
 
@@ -258,26 +259,26 @@ export function DocumentsPage() {
           </div>
         )}
 
-        {progress && (
+        {upload.progress && (
           <div className="mt-4">
             <div className="flex justify-between text-sm text-gray-600 mb-1">
-              <span>{progress.stage}</span>
-              <span>{progress.current}/{progress.total}</span>
+              <span>{upload.progress.stage}</span>
+              <span>{upload.progress.current}/{upload.progress.total}</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                style={{ width: `${(upload.progress.current / upload.progress.total) * 100}%` }}
               />
             </div>
           </div>
         )}
 
-        {result && (
-          <div className={`mt-4 p-3 rounded-lg text-sm ${result.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>
-            {result.success
-              ? `解析完成：生成 ${result.chunk_count} 个复习片段，识别 ${result.image_count} 张图片。`
-              : `上传失败：${result.error}`}
+        {upload.result && (
+          <div className={`mt-4 p-3 rounded-lg text-sm ${upload.result.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>
+            {upload.result.success
+              ? `解析完成：生成 ${upload.result.chunk_count} 个复习片段，识别 ${upload.result.image_count} 张图片。`
+              : `上传失败：${upload.result.error}`}
           </div>
         )}
       </div>
