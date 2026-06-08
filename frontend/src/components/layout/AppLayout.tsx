@@ -1,5 +1,5 @@
 import { Outlet } from "react-router-dom";
-import { AlertCircle, CheckCircle2, Upload, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, LoaderCircle, Upload, X } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { useAppStore } from "../../stores/appStore";
 
@@ -59,7 +59,14 @@ function GlobalUploadStatus() {
             </div>
           )}
         </div>
-        {!upload.uploading && (
+        {upload.uploading ? (
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-blue-600"
+            aria-label="正在解析"
+          >
+            <LoaderCircle size={20} className="animate-spin" />
+          </div>
+        ) : (
           <button
             type="button"
             onClick={clearUpload}
