@@ -430,7 +430,69 @@ class BM25Indexer:
             self._save(collection)
 
         return removed_any
-    
+
+    def remove_chunk_ids(
+        self,
+        chunk_ids: List[str],
+        collection: str = "default",
+    ) -> int:
+        """Remove exact chunk IDs from the BM25 index.
+
+        This is used by force reprocessing, where Chroma vector IDs are known
+        but do not necessarily share a document-id prefix.
+        """
+        chunk_id_set = {str(chunk_id) for chunk_id in chunk_ids if str(chunk_id)}
+        if not chunk_id_set:
+            return 0
+
+        if not self._index:
+            if not self.load(collection):
+                return 0
+
+        removed_count = 0
+        terms_to_delete: list[str] = []
+
+        for term, term_data in self._index.items():
+            kept_postings = []
+            for posting in term_data["postings"]:
+                if str(posting["chunk_id"]) in chunk_id_set:
+                    removed_count += 1
+                    continue
+                kept_postings.append(posting)
+
+            term_data["postings"] = kept_postings
+            if not kept_postings:
+                terms_to_delete.append(term)
+            else:
+                term_data["df"] = len(kept_postings)
+
+        for term in terms_to_delete:
+            del self._index[term]
+
+        if removed_count:
+            all_chunk_ids: set[str] = set()
+            total_length = 0
+            for term_data in self._index.values():
+                for posting in term_data["postings"]:
+                    all_chunk_ids.add(posting["chunk_id"])
+                    total_length += posting["doc_length"]
+
+            num_docs = len(all_chunk_ids)
+            avg_doc_length = total_length / num_docs if num_docs else 0.0
+
+            for term_data in self._index.values():
+                term_data["idf"] = self._calculate_idf(num_docs, term_data["df"])
+
+            self._metadata = {
+                "num_docs": num_docs,
+                "avg_doc_length": avg_doc_length,
+                "total_terms": len(self._index),
+                "collection": collection,
+            }
+            self._save(collection)
+
+        return removed_count
+
     # ===== Private Helper Methods =====
     
     def _calculate_idf(self, num_docs: int, df: int) -> float:

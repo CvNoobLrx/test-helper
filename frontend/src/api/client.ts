@@ -22,7 +22,6 @@ export const api = {
 export async function uploadFile(
   file: File,
   collection: string,
-  force: boolean,
   onProgress: (progress: { stage: string; current: number; total: number }) => void,
   onComplete: (result: unknown) => void,
   onError: (error: string) => void
@@ -30,7 +29,6 @@ export async function uploadFile(
   const formData = new FormData();
   formData.append("file", file);
   formData.append("collection", collection);
-  formData.append("force", force ? "true" : "false");
 
   try {
     const res = await fetch(`${BASE_URL}/documents/upload`, {

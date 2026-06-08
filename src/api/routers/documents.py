@@ -151,7 +151,6 @@ async def delete_document(doc_id: str, collection: str = "default"):
 async def upload_document(
     file: UploadFile = File(...),
     collection: str = Form("default"),
-    force: bool = Form(False),
 ):
     """Upload a file and run ingestion. Returns SSE stream of progress events."""
     collection = storage_collection(collection)
@@ -181,14 +180,13 @@ async def upload_document(
                     from src.observability.logger import write_trace
 
                     settings = get_settings()
-                    pipeline = IngestionPipeline(settings, collection=collection, force=force)
+                    pipeline = IngestionPipeline(settings, collection=collection)
                     trace = TraceContext(
                         trace_type="ingestion",
                         metadata={
                             "collection": collection,
                             "file_path": file_path,
                             "file_name": safe_name,
-                            "force": force,
                         },
                     )
 

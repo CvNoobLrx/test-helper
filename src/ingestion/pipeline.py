@@ -244,7 +244,12 @@ class IngestionPipeline:
             file_hash = self.integrity_checker.compute_sha256(str(file_path))
             logger.info(f"  File hash: {file_hash[:16]}...")
             
-            if not self.force and self.integrity_checker.should_skip(file_hash):
+            should_skip = self.integrity_checker.should_skip(file_hash)
+            reprocess_reason = ""
+            if should_skip and not self.force:
+                reprocess_reason = self._ocr_reprocess_reason(file_path, file_hash)
+
+            if should_skip and not self.force and not reprocess_reason:
                 logger.info(f"  ⏭️  File already processed, skipping (use force=True to reprocess)")
                 return PipelineResult(
                     success=True,
@@ -252,8 +257,21 @@ class IngestionPipeline:
                     doc_id=file_hash,
                     stages={"integrity": {"skipped": True, "reason": "already_processed"}}
                 )
-            
-            stages["integrity"] = {"file_hash": file_hash, "skipped": False}
+
+            cleanup_result = (
+                self._cleanup_existing_document(file_hash)
+                if should_skip and (self.force or reprocess_reason)
+                else {}
+            )
+            stages["integrity"] = {
+                "file_hash": file_hash,
+                "skipped": False,
+                "force": self.force,
+                "reprocess_reason": reprocess_reason,
+                "cleanup": cleanup_result,
+            }
+            if reprocess_reason:
+                logger.info("  Existing PDF needs OCR reprocessing: %s", reprocess_reason)
             logger.info("  ✓ File needs processing")
             
             # ─────────────────────────────────────────────────────────────
@@ -618,6 +636,111 @@ class IngestionPipeline:
         image_storage = getattr(self, "image_storage", None)
         if image_storage is not None:
             image_storage.close()
+
+    def _ocr_reprocess_reason(self, file_path: Path, file_hash: str) -> str:
+        """Return a reason when a previously ingested PDF should be OCR-reprocessed."""
+        if file_path.suffix.lower() != ".pdf":
+            return ""
+
+        ocr_settings = getattr(self.settings, "ocr", None)
+        ocr_mode = str(getattr(ocr_settings, "mode", "auto") or "auto").lower()
+        if ocr_mode == "off":
+            return ""
+
+        try:
+            import importlib.util
+
+            if (
+                importlib.util.find_spec("rapidocr") is None
+                and importlib.util.find_spec("rapidocr_onnxruntime") is None
+            ):
+                return ""
+        except Exception:
+            return ""
+
+        try:
+            existing = self.vector_upserter.vector_store.collection.get(
+                where={"doc_hash": file_hash},
+                include=["documents", "metadatas"],
+            )
+        except Exception as exc:
+            logger.warning("Could not inspect existing chunks for OCR state: %s", exc)
+            return ""
+
+        ids = existing.get("ids", []) or []
+        documents = existing.get("documents", []) or []
+        metadatas = existing.get("metadatas", []) or []
+        if not ids:
+            return "processed_pdf_missing_chunks"
+
+        for index, _chunk_id in enumerate(ids):
+            text = str(documents[index] if index < len(documents) else "")
+            metadata = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+            if (
+                metadata.get("ocr_used") is True
+                or metadata.get("ocr_source") is True
+                or "## OCR Page" in text
+            ):
+                return ""
+
+        return "processed_pdf_without_ocr_chunks"
+
+    def _cleanup_existing_document(self, file_hash: str) -> Dict[str, Any]:
+        """Remove stale storage records before reprocessing a document."""
+        result: Dict[str, Any] = {
+            "chunks_deleted": 0,
+            "bm25_postings_removed": 0,
+            "images_deleted": 0,
+            "knowledge_points_deleted": 0,
+            "errors": [],
+        }
+
+        old_chunk_ids: List[str] = []
+        try:
+            existing = self.vector_upserter.vector_store.collection.get(
+                where={"doc_hash": file_hash},
+                include=[],
+            )
+            old_chunk_ids = [str(item) for item in existing.get("ids", [])]
+        except Exception as exc:
+            result["errors"].append(f"ChromaDB lookup failed: {exc}")
+
+        if old_chunk_ids:
+            try:
+                removed_kps = self.kp_index.remove_by_chunks(old_chunk_ids, self.collection)
+                result["knowledge_points_deleted"] = len(removed_kps)
+            except Exception as exc:
+                result["errors"].append(f"Knowledge point cleanup failed: {exc}")
+
+            try:
+                result["bm25_postings_removed"] = self.bm25_indexer.remove_chunk_ids(
+                    old_chunk_ids,
+                    self.collection,
+                )
+            except Exception as exc:
+                result["errors"].append(f"BM25 cleanup failed: {exc}")
+
+        try:
+            result["chunks_deleted"] = self.vector_upserter.vector_store.delete_by_metadata(
+                {"doc_hash": file_hash}
+            )
+        except Exception as exc:
+            result["errors"].append(f"ChromaDB cleanup failed: {exc}")
+
+        try:
+            deleted_images = 0
+            for image in self.image_storage.list_images(doc_hash=file_hash):
+                image_id = image.get("image_id")
+                if image_id and self.image_storage.delete_image(str(image_id)):
+                    deleted_images += 1
+            result["images_deleted"] = deleted_images
+        except Exception as exc:
+            result["errors"].append(f"Image cleanup failed: {exc}")
+
+        if any(value for key, value in result.items() if key != "errors"):
+            logger.info("  Reprocess cleanup: %s", result)
+
+        return result
 
 
 def run_pipeline(

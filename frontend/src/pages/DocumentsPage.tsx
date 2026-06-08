@@ -32,7 +32,6 @@ export function DocumentsPage() {
   const [newSubject, setNewSubject] = useState("");
   const [addingSubject, setAddingSubject] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [forceReprocess, setForceReprocess] = useState(false);
   const [progress, setProgress] = useState<IngestionProgress | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
@@ -118,7 +117,6 @@ export function DocumentsPage() {
     await uploadFile(
       file,
       collection,
-      forceReprocess,
       (p) => setProgress(p),
       (r) => { setResult(r as PipelineResult); setUploading(false); },
       (e) => { setResult({ success: false, error: e } as PipelineResult); setUploading(false); }
@@ -127,6 +125,7 @@ export function DocumentsPage() {
     setSelectedCollection(collection.trim() || "default");
     queryClient.invalidateQueries({ queryKey: ["documents"] });
     queryClient.invalidateQueries({ queryKey: ["collections"] });
+    queryClient.invalidateQueries({ queryKey: ["document-preview"] });
   };
 
   const handlePreview = (doc: Document) => {
@@ -234,15 +233,6 @@ export function DocumentsPage() {
             <Upload size={16} />
             {uploading ? "正在解析" : "上传资料"}
           </button>
-          <label className="flex h-10 items-center gap-2 rounded-lg border px-3 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={forceReprocess}
-              onChange={(e) => setForceReprocess(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            强制重新解析
-          </label>
         </div>
 
         {addingSubject && (
