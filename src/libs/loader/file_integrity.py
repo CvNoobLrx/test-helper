@@ -108,6 +108,33 @@ class FileIntegrityChecker(ABC):
         pass
 
     @abstractmethod
+    def set_enabled(self, file_hash: str, enabled: bool) -> bool:
+        """Update whether a successfully processed file participates in retrieval.
+
+        Args:
+            file_hash: SHA256 hash identifying the record.
+            enabled: True to include the file in retrieval, False to exclude it.
+
+        Returns:
+            True if a record was updated, False if not found.
+        """
+        pass
+
+    @abstractmethod
+    def list_disabled_hashes(
+        self, collection: Optional[str] = None
+    ) -> List[str]:
+        """List processed file hashes that are disabled for retrieval.
+
+        Args:
+            collection: Optional collection filter.
+
+        Returns:
+            SHA256 hashes for disabled successful records.
+        """
+        pass
+
+    @abstractmethod
     def list_processed(
         self, collection: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -137,6 +164,7 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             status TEXT NOT NULL,  -- 'success' or 'failed'
             collection TEXT,
             error_msg TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
             processed_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -188,10 +216,21 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
                     status TEXT NOT NULL,
                     collection TEXT,
                     error_msg TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 1,
                     processed_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
+
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(ingestion_history)").fetchall()
+            }
+            if "enabled" not in columns:
+                conn.execute(
+                    "ALTER TABLE ingestion_history "
+                    "ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
+                )
             
             # Create index on status for faster queries
             conn.execute("""
@@ -396,6 +435,49 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         finally:
             conn.close()
 
+    def set_enabled(self, file_hash: str, enabled: bool) -> bool:
+        """Update whether a successfully processed file is used for retrieval."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.execute(
+                """
+                UPDATE ingestion_history
+                SET enabled = ?,
+                    updated_at = ?
+                WHERE file_hash = ?
+                  AND status = 'success'
+                """,
+                (1 if enabled else 0, now, file_hash),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            raise RuntimeError(f"Failed to update enabled state for {file_hash}: {e}")
+        finally:
+            conn.close()
+
+    def list_disabled_hashes(
+        self, collection: Optional[str] = None
+    ) -> List[str]:
+        """List disabled successful file hashes."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            query = (
+                "SELECT file_hash FROM ingestion_history "
+                "WHERE status = 'success' AND COALESCE(enabled, 1) = 0"
+            )
+            params: list[str] = []
+            if collection is not None:
+                query += " AND collection = ?"
+                params.append(collection)
+
+            cursor = conn.execute(query, params)
+            return [str(row[0]) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
     def list_processed(
         self, collection: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -412,7 +494,8 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         conn.row_factory = sqlite3.Row
         try:
             query = (
-                "SELECT file_hash, file_path, collection, processed_at, updated_at "
+                "SELECT file_hash, file_path, collection, processed_at, "
+                "updated_at, COALESCE(enabled, 1) AS enabled "
                 "FROM ingestion_history WHERE status = 'success'"
             )
             params: list[str] = []

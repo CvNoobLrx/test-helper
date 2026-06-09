@@ -5,7 +5,7 @@ document ingestion flow:
     1. File Integrity Check (SHA256 skip check)
     2. Document Loading (PDF → Document)
     3. Chunking (Document → Chunks)
-    4. Transform (Refine + Enrich + Caption)
+    4. Transform (Refine + Enrich + Knowledge Points)
     5. Encoding (Dense + Sparse vectors)
     6. Storage (VectorStore + BM25 Index + ImageStorage)
 
@@ -35,7 +35,6 @@ from src.libs.vector_store.vector_store_factory import VectorStoreFactory
 from src.ingestion.chunking.document_chunker import DocumentChunker
 from src.ingestion.transform.chunk_refiner import ChunkRefiner
 from src.ingestion.transform.metadata_enricher import MetadataEnricher
-from src.ingestion.transform.image_captioner import ImageCaptioner
 from src.ingestion.transform.knowledge_point_extractor import KnowledgePointExtractor
 from src.ingestion.embedding.dense_encoder import DenseEncoder
 from src.ingestion.embedding.sparse_encoder import SparseEncoder
@@ -105,7 +104,6 @@ class IngestionPipeline:
     - Text chunking with configurable splitter
     - Chunk refinement (rule-based + LLM)
     - Metadata enrichment (rule-based + LLM)
-    - Image captioning (Vision LLM)
     - Dense embedding (Azure text-embedding-ada-002)
     - Sparse encoding (BM25 term statistics)
     - Vector storage (ChromaDB)
@@ -158,10 +156,6 @@ class IngestionPipeline:
         self.metadata_enricher = MetadataEnricher(settings)
         logger.info(f"  ✓ MetadataEnricher initialized (use_llm={self.metadata_enricher.use_llm})")
         
-        self.image_captioner = ImageCaptioner(settings)
-        has_vision = self.image_captioner.llm is not None
-        logger.info(f"  ✓ ImageCaptioner initialized (vision_enabled={has_vision})")
-
         self.knowledge_point_extractor = KnowledgePointExtractor(settings)
         logger.info(f"  ✓ KnowledgePointExtractor initialized (use_llm={self.knowledge_point_extractor.use_llm})")
         
@@ -294,6 +288,9 @@ class IngestionPipeline:
                 }
                 if file_path.suffix.lower() == ".pdf":
                     loader_kwargs["ocr_settings"] = getattr(self.settings, "ocr", None)
+                    loader_kwargs["mineru_output_root"] = str(
+                        resolve_path(f"data/mineru/{self.collection}")
+                    )
                 loader = LoaderFactory.create(
                     file_path,
                     **loader_kwargs,
@@ -318,7 +315,7 @@ class IngestionPipeline:
             }
             if trace is not None:
                 trace.record_stage("load", {
-                    "method": "markitdown+ocr" if document.metadata.get("ocr_used") else "markitdown",
+                    "method": document.metadata.get("parser", "loader"),
                     "doc_id": document.id,
                     "text_length": len(document.text),
                     "image_count": image_count,
@@ -386,14 +383,8 @@ class IngestionPipeline:
             enriched_by_rule = sum(1 for c in chunks if c.metadata.get("enriched_by") == "rule")
             logger.info(f"      LLM enriched: {enriched_by_llm}, Rule enriched: {enriched_by_rule}")
             
-            # 4c: Image Captioning
-            logger.info("  4c. Image Captioning...")
-            chunks = self.image_captioner.transform(chunks, trace)
-            captioned = sum(1 for c in chunks if c.metadata.get("image_captions"))
-            logger.info(f"      Chunks with captions: {captioned}")
-
-            # 4d: Knowledge Point Extraction
-            logger.info("  4d. Knowledge Point Extraction...")
+            # 4c: Knowledge Point Extraction
+            logger.info("  4c. Knowledge Point Extraction...")
             knowledge_point_extractor = getattr(self, "knowledge_point_extractor", None)
             if knowledge_point_extractor is not None:
                 chunks = knowledge_point_extractor.transform(chunks, trace)
@@ -404,18 +395,18 @@ class IngestionPipeline:
             stages["transform"] = {
                 "chunk_refiner": {"llm": refined_by_llm, "rule": refined_by_rule},
                 "metadata_enricher": {"llm": enriched_by_llm, "rule": enriched_by_rule},
-                "image_captioner": {"captioned_chunks": captioned},
+                "image_captioner": {"enabled": False, "reason": "disabled_by_default"},
                 "knowledge_point_extractor": {"kp_count": kp_count, "extracted_by": extracted_by},
             }
             _elapsed_transform = (time.monotonic() - _t0_transform) * 1000.0
             if trace is not None:
                 trace.record_stage("transform", {
-                    "method": "refine+enrich+caption",
+                    "method": "refine+enrich+knowledge_points",
                     "refined_by_llm": refined_by_llm,
                     "refined_by_rule": refined_by_rule,
                     "enriched_by_llm": enriched_by_llm,
                     "enriched_by_rule": enriched_by_rule,
-                    "captioned_chunks": captioned,
+                    "image_captioner_enabled": False,
                     "chunks": [
                         {
                             "chunk_id": c.id,

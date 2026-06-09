@@ -332,15 +332,17 @@ class QueryKnowledgeHubTool:
         """
         if self._hybrid_search is None:
             raise RuntimeError("HybridSearch not initialized")
-        
+
         # Use a larger initial retrieval for reranking
         initial_top_k = top_k * 2 if self.config.enable_rerank else top_k
-        
+        excluded_doc_hashes = self._disabled_doc_hashes(self._current_collection)
+        filters = {"excluded_doc_hashes": excluded_doc_hashes} if excluded_doc_hashes else None
+
         try:
             results = self._hybrid_search.search(
                 query=query,
                 top_k=initial_top_k,
-                filters=None,
+                filters=filters,
                 trace=trace,
                 return_details=False,
             )
@@ -423,6 +425,28 @@ class QueryKnowledgeHubTool:
             },
             is_empty=True,
         )
+
+    def _disabled_doc_hashes(self, collection: Optional[str]) -> list[str]:
+        if not collection:
+            return []
+
+        try:
+            from src.libs.loader.file_integrity import SQLiteIntegrityChecker
+
+            checker = SQLiteIntegrityChecker(
+                db_path=str(resolve_path("data/db/ingestion_history.db"))
+            )
+            try:
+                return checker.list_disabled_hashes(collection)
+            finally:
+                checker.close()
+        except Exception as exc:
+            logger.warning(
+                "Failed to load disabled documents for collection '%s': %s",
+                collection,
+                exc,
+            )
+            return []
 
 
 # Module-level tool instance (lazy-initialized)

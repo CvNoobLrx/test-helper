@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_EXCLUDED_DOC_HASHES = "excluded_doc_hashes"
+
 
 class DenseRetriever:
     """Dense retriever using embedding-based semantic search.
@@ -132,7 +134,10 @@ class DenseRetriever:
         
         # Use default top_k if not specified
         effective_top_k = top_k if top_k is not None else self.default_top_k
-        
+        excluded_doc_hashes = self._extract_excluded_doc_hashes(filters)
+        storage_filters = self._storage_filters(filters)
+        candidate_top_k = self._candidate_top_k(effective_top_k, excluded_doc_hashes)
+
         logger.debug(f"Retrieving for query='{query[:50]}...', top_k={effective_top_k}")
         
         # Step 1: Embed the query
@@ -149,8 +154,8 @@ class DenseRetriever:
         try:
             raw_results = self.vector_store.query(
                 vector=query_vector,
-                top_k=effective_top_k,
-                filters=filters,
+                top_k=candidate_top_k,
+                filters=storage_filters,
                 trace=trace,
             )
         except Exception as e:
@@ -161,9 +166,15 @@ class DenseRetriever:
         
         # Step 3: Transform to RetrievalResult objects
         results = self._transform_results(raw_results)
-        
+        if excluded_doc_hashes:
+            results = [
+                result
+                for result in results
+                if str(result.metadata.get("doc_hash", "")) not in excluded_doc_hashes
+            ]
+
         logger.debug(f"Retrieved {len(results)} results for query")
-        return results
+        return results[:effective_top_k]
     
     def _validate_query(self, query: str) -> None:
         """Validate the query string.
@@ -227,8 +238,54 @@ class DenseRetriever:
                     "Skipping this result."
                 )
                 continue
-        
+
         return results
+
+    def _extract_excluded_doc_hashes(
+        self,
+        filters: Optional[Dict[str, Any]],
+    ) -> set[str]:
+        if not filters:
+            return set()
+        value = filters.get(INTERNAL_EXCLUDED_DOC_HASHES)
+        if not value:
+            return set()
+        if isinstance(value, (list, tuple, set)):
+            return {str(item) for item in value if str(item)}
+        return {str(value)}
+
+    def _storage_filters(
+        self,
+        filters: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not filters:
+            return None
+        storage_filters = {
+            key: value
+            for key, value in filters.items()
+            if key != INTERNAL_EXCLUDED_DOC_HASHES
+        }
+        return storage_filters or None
+
+    def _candidate_top_k(
+        self,
+        effective_top_k: int,
+        excluded_doc_hashes: set[str],
+    ) -> int:
+        if not excluded_doc_hashes:
+            return effective_top_k
+
+        fallback = max(effective_top_k * 5, effective_top_k + len(excluded_doc_hashes) * 20)
+        collection = getattr(self.vector_store, "collection", None)
+        if collection is None or not hasattr(collection, "count"):
+            return fallback
+
+        try:
+            count = int(collection.count())
+        except Exception:
+            return fallback
+
+        return max(effective_top_k, min(fallback, count or effective_top_k))
 
 
 def create_dense_retriever(

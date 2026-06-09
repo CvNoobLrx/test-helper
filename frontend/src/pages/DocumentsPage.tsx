@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -32,25 +32,18 @@ export function DocumentsPage() {
   const setUploadProgress = useAppStore((s) => s.setUploadProgress);
   const finishUpload = useAppStore((s) => s.finishUpload);
   const [collection, setCollection] = useState(selectedCollection);
-  const [localSubjects, setLocalSubjects] = useState<string[]>([]);
+  const [localSubjects, setLocalSubjects] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("final-review-helper-subjects") || "[]");
+      return Array.isArray(saved) ? saved.filter((item) => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [newSubject, setNewSubject] = useState("");
   const [addingSubject, setAddingSubject] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("original");
-  const [originalText, setOriginalText] = useState("");
-  const [originalTextError, setOriginalTextError] = useState("");
-  const [loadingOriginalText, setLoadingOriginalText] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("final-review-helper-subjects") || "[]");
-      if (Array.isArray(saved)) {
-        setLocalSubjects(saved.filter((item) => typeof item === "string"));
-      }
-    } catch {
-      setLocalSubjects([]);
-    }
-  }, []);
 
   const { data: collectionsData } = useQuery({
     queryKey: ["collections"],
@@ -76,6 +69,46 @@ export function DocumentsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
+    },
+  });
+
+  const toggleEnabledMutation = useMutation({
+    mutationFn: ({
+      docId,
+      enabled,
+      collectionName,
+    }: {
+      docId: string;
+      enabled: boolean;
+      collectionName: string;
+    }) =>
+      api.post<{ source_hash: string; collection: string; enabled: boolean }>(
+        `/documents/${docId}/enabled?collection=${encodeURIComponent(collectionName)}`,
+        { enabled }
+      ),
+    onMutate: async ({ docId, enabled, collectionName }) => {
+      const queryKey = ["documents", collectionName] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<{ documents: Document[] }>(queryKey);
+      queryClient.setQueryData<{ documents: Document[] }>(queryKey, (current) => {
+        if (!current) return current;
+        return {
+          documents: current.documents.map((doc) =>
+            doc.source_hash === docId ? { ...doc, enabled } : doc
+          ),
+        };
+      });
+      return { previous, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(context.queryKey, context.previous);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      if (variables) {
+        queryClient.invalidateQueries({ queryKey: ["documents", variables.collectionName] });
+      }
     },
   });
 
@@ -131,14 +164,18 @@ export function DocumentsPage() {
   const handlePreview = (doc: Document) => {
     setPreviewDoc(doc);
     setPreviewMode("original");
-    setOriginalText("");
-    setOriginalTextError("");
   };
 
   const handleClosePreview = () => {
     setPreviewDoc(null);
-    setOriginalText("");
-    setOriginalTextError("");
+  };
+
+  const handleToggleDocumentEnabled = (doc: Document, enabled: boolean) => {
+    toggleEnabledMutation.mutate({
+      docId: doc.source_hash,
+      enabled,
+      collectionName: collection,
+    });
   };
 
   const originalExtension = previewData?.extension || (previewDoc ? getExtension(previewDoc.source_path) : "");
@@ -148,41 +185,21 @@ export function DocumentsPage() {
 
   const documents = docsData?.documents || [];
 
-  useEffect(() => {
-    if (!previewDoc || previewMode !== "original" || !previewData || !canPreviewOriginalAsText) {
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingOriginalText(true);
-    setOriginalTextError("");
-    fetch(previewData.original_url)
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error(`原文加载失败：${res.status}`);
-        }
-        return res.text();
-      })
-      .then((text) => {
-        if (!cancelled) {
-          setOriginalText(text);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setOriginalTextError(String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingOriginalText(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [canPreviewOriginalAsText, previewData, previewDoc, previewMode]);
+  const {
+    data: originalText = "",
+    isLoading: loadingOriginalText,
+    error: originalTextError,
+  } = useQuery({
+    queryKey: ["document-original-text", originalUrl],
+    queryFn: async () => {
+      const res = await fetch(originalUrl);
+      if (!res.ok) {
+        throw new Error(`原文加载失败：${res.status}`);
+      }
+      return res.text();
+    },
+    enabled: Boolean(previewDoc && previewMode === "original" && originalUrl && canPreviewOriginalAsText),
+  });
 
   return (
     <div className="p-8">
@@ -295,7 +312,7 @@ export function DocumentsPage() {
         ) : (
           <div className="divide-y">
             {documents.map((doc) => (
-              <div key={doc.source_hash} className="py-3 flex items-center justify-between">
+              <div key={doc.source_hash} className="py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <File size={18} className="text-gray-400" />
                   <div>
@@ -306,6 +323,14 @@ export function DocumentsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  <DocumentEnabledSwitch
+                    checked={doc.enabled !== false}
+                    disabled={
+                      toggleEnabledMutation.isPending &&
+                      toggleEnabledMutation.variables?.docId === doc.source_hash
+                    }
+                    onChange={(enabled) => handleToggleDocumentEnabled(doc, enabled)}
+                  />
                   <button
                     type="button"
                     onClick={() => handlePreview(doc)}
@@ -427,7 +452,7 @@ export function DocumentsPage() {
                   {loadingOriginalText ? (
                     <div className="text-sm text-gray-500">正在加载原文...</div>
                   ) : originalTextError ? (
-                    <div className="text-sm text-red-700">{originalTextError}</div>
+                    <div className="text-sm text-red-700">{String(originalTextError)}</div>
                   ) : (
                     <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-800">{originalText}</pre>
                   )}
@@ -462,5 +487,31 @@ export function DocumentsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function DocumentEnabledSwitch({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex h-9 items-center gap-2 rounded-lg border px-2 text-xs text-gray-600 hover:bg-gray-50">
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+        aria-label={checked ? "停用资料" : "启用资料"}
+      />
+      <span className="relative h-5 w-9 shrink-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-green-500 peer-disabled:opacity-50 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform after:content-[''] peer-checked:after:translate-x-4" />
+      <span className="w-10 text-left">{checked ? "启用" : "不启用"}</span>
+    </label>
   );
 }

@@ -104,7 +104,7 @@ class DataService:
         """Return ingested documents as plain dicts (UI-friendly).
 
         Each dict has keys: source_path, source_hash, collection,
-        chunk_count, image_count, processed_at.
+        enabled, chunk_count, image_count, processed_at.
         """
         self._ensure_stores(collection)
         from dataclasses import asdict
@@ -181,6 +181,23 @@ class DataService:
             collection or "default",
             source_hash=source_hash,
         )
+
+    def set_document_enabled(
+        self,
+        source_hash: str,
+        enabled: bool,
+        collection: Optional[str] = None,
+    ) -> bool:
+        """Set whether a processed document participates in retrieval."""
+        self._ensure_stores(collection)
+        return self._manager.set_document_enabled(source_hash, enabled)
+
+    def list_disabled_document_hashes(
+        self, collection: Optional[str] = None
+    ) -> List[str]:
+        """Return disabled document hashes for a collection."""
+        self._ensure_stores(collection)
+        return self._manager.list_disabled_hashes(collection)
 
     def get_collection_stats(
         self, collection: Optional[str] = None

@@ -20,10 +20,18 @@ _LOADER_REGISTRY: Dict[str, Type[BaseLoader]] = {}
 
 def _register_builtin_loaders() -> None:
     """Register built-in loader providers at module load time."""
-    from src.libs.loader.pdf_loader import PdfLoader
+    from src.libs.loader.text_loader import TextLoader
+    from src.libs.loader.mineru_loader import MinerULoader
 
     for ext in (".pdf",):
-        _LOADER_REGISTRY[ext] = PdfLoader
+        _LOADER_REGISTRY[ext] = MinerULoader
+
+    for ext in TextLoader.SUPPORTED_EXTENSIONS:
+        _LOADER_REGISTRY[ext] = TextLoader
+
+    from src.libs.loader.docx_loader import DocxLoader
+    for ext in DocxLoader.SUPPORTED_EXTENSIONS:
+        _LOADER_REGISTRY[ext] = DocxLoader
 
     try:
         from src.libs.loader.ppt_loader import PptLoader

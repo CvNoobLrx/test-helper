@@ -30,6 +30,7 @@ class DocumentInfo:
     source_path: str
     source_hash: str
     collection: Optional[str] = None
+    enabled: bool = True
     chunk_count: int = 0
     image_count: int = 0
     processed_at: Optional[str] = None
@@ -128,6 +129,7 @@ class DocumentManager:
                     source_path=source_path,
                     source_hash=source_hash,
                     collection=coll,
+                    enabled=bool(rec.get("enabled", 1)),
                     chunk_count=chunk_count,
                     image_count=image_count,
                     processed_at=rec.get("processed_at"),
@@ -175,6 +177,7 @@ class DocumentManager:
             source_path=record["file_path"],
             source_hash=source_hash,
             collection=record.get("collection"),
+            enabled=bool(record.get("enabled", 1)),
             chunk_count=len(chunk_ids),
             image_count=len(image_ids),
             processed_at=record.get("processed_at"),
@@ -266,6 +269,16 @@ class DocumentManager:
             result.success = False
 
         return result
+
+    def set_document_enabled(self, source_hash: str, enabled: bool) -> bool:
+        """Update the retrieval-enabled state for a document."""
+        return self.integrity.set_enabled(source_hash, enabled)
+
+    def list_disabled_hashes(
+        self, collection: Optional[str] = None
+    ) -> List[str]:
+        """Return hashes for documents that should be excluded from retrieval."""
+        return self.integrity.list_disabled_hashes(collection)
 
     # ------------------------------------------------------------------
     # get_collection_stats

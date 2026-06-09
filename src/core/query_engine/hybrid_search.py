@@ -562,6 +562,7 @@ class HybridSearch:
                 keywords=keywords,
                 top_k=self.config.sparse_top_k,
                 collection=collection,
+                filters=filters,
                 trace=trace,
             )
             _elapsed = (time.monotonic() - _t0) * 1000.0
@@ -716,10 +717,14 @@ class HybridSearch:
             True if all filters match, False otherwise.
         """
         for key, value in filters.items():
-            if key == "collection":
+            if key == "excluded_doc_hashes":
+                excluded = value if isinstance(value, (list, tuple, set)) else [value]
+                if str(metadata.get("doc_hash", "")) in {str(item) for item in excluded}:
+                    return False
+            elif key == "collection":
                 # Collection might be in different metadata keys
                 meta_collection = (
-                    metadata.get("collection") 
+                    metadata.get("collection")
                     or metadata.get("source_collection")
                 )
                 if meta_collection != value:

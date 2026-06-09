@@ -14,6 +14,7 @@ export interface Document {
   source_path: string;
   source_hash: string;
   collection: string;
+  enabled?: boolean;
   chunk_count: number;
   image_count: number;
   processed_at: string;

@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_EXCLUDED_DOC_HASHES = "excluded_doc_hashes"
+
 
 class SparseRetriever:
     """Sparse retriever using BM25 keyword-based search.
@@ -105,6 +107,7 @@ class SparseRetriever:
         keywords: List[str],
         top_k: Optional[int] = None,
         collection: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
         trace: Optional[Any] = None,
     ) -> List[RetrievalResult]:
         """Retrieve chunks matching the given keywords using BM25.
@@ -136,6 +139,8 @@ class SparseRetriever:
         # Use defaults if not specified
         effective_top_k = top_k if top_k is not None else self.default_top_k
         effective_collection = collection if collection is not None else self.default_collection
+        excluded_doc_hashes = self._extract_excluded_doc_hashes(filters)
+        candidate_top_k = self._candidate_top_k(effective_top_k, excluded_doc_hashes)
         
         logger.debug(
             f"Retrieving for keywords={keywords[:5]}{'...' if len(keywords) > 5 else ''}, "
@@ -154,7 +159,7 @@ class SparseRetriever:
         try:
             bm25_results = self.bm25_indexer.query(
                 query_terms=keywords,
-                top_k=effective_top_k,
+                top_k=candidate_top_k,
                 trace=trace,
             )
         except Exception as e:
@@ -180,9 +185,15 @@ class SparseRetriever:
         
         # Step 4: Merge BM25 scores with text/metadata
         results = self._merge_results(bm25_results, records)
-        
+        if excluded_doc_hashes:
+            results = [
+                result
+                for result in results
+                if str(result.metadata.get("doc_hash", "")) not in excluded_doc_hashes
+            ]
+
         logger.debug(f"Retrieved {len(results)} results for keywords")
-        return results
+        return results[:effective_top_k]
     
     def _validate_keywords(self, keywords: List[str]) -> None:
         """Validate the keywords list.
@@ -285,8 +296,35 @@ class SparseRetriever:
                     "Skipping this result."
                 )
                 continue
-        
+
         return results
+
+    def _extract_excluded_doc_hashes(
+        self,
+        filters: Optional[Dict[str, Any]],
+    ) -> set[str]:
+        if not filters:
+            return set()
+        value = filters.get(INTERNAL_EXCLUDED_DOC_HASHES)
+        if not value:
+            return set()
+        if isinstance(value, (list, tuple, set)):
+            return {str(item) for item in value if str(item)}
+        return {str(value)}
+
+    def _candidate_top_k(
+        self,
+        effective_top_k: int,
+        excluded_doc_hashes: set[str],
+    ) -> int:
+        if not excluded_doc_hashes:
+            return effective_top_k
+
+        fallback = max(effective_top_k * 5, effective_top_k + len(excluded_doc_hashes) * 20)
+        num_docs = int(self.bm25_indexer._metadata.get("num_docs", 0) or 0)
+        if num_docs <= 0:
+            return fallback
+        return max(effective_top_k, min(fallback, num_docs))
 
 
 def create_sparse_retriever(

@@ -10,6 +10,7 @@ import mimetypes
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 
 from src.api.dependencies import get_data_service, get_settings
 from src.api.collection_names import storage_collection
@@ -17,6 +18,10 @@ from src.api.streaming import sse_event
 from src.core.settings import resolve_path
 
 router = APIRouter()
+
+
+class DocumentEnabledRequest(BaseModel):
+    enabled: bool
 
 
 def _document_or_404(doc_id: str, collection: str) -> dict:
@@ -144,6 +149,29 @@ async def delete_document(doc_id: str, collection: str = "default"):
         "deleted": True,
         "knowledge_points_deleted": len(removed_kps),
         "mastery_records_deleted": mastery_removed,
+    }
+
+
+@router.post("/{doc_id}/enabled")
+async def set_document_enabled(
+    doc_id: str,
+    payload: DocumentEnabledRequest,
+    collection: str = "default",
+):
+    ds = get_data_service()
+    collection = storage_collection(collection)
+    documents = ds.list_documents(collection)
+    if not any(doc.get("source_hash") == doc_id for doc in documents):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    updated = ds.set_document_enabled(doc_id, payload.enabled, collection)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "source_hash": doc_id,
+        "collection": collection,
+        "enabled": payload.enabled,
     }
 
 
