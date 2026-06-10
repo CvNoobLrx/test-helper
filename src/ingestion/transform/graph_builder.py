@@ -49,12 +49,13 @@ class GraphBuilder:
         *,
         collection: str,
         document: Document,
+        doc_hash: str | None = None,
         chunks: List[Chunk],
         vector_id_by_chunk: Dict[str, str],
         knowledge_points: List[Dict[str, Any]],
         images: List[Dict[str, Any]],
     ) -> tuple[List[GraphNodeRecord], List[GraphEdgeRecord]]:
-        doc_hash = str(document.id)
+        doc_hash = str(doc_hash or document.metadata.get("doc_hash") or document.id)
         source_path = str(document.metadata.get("source_path") or "")
         title = str(document.metadata.get("title") or Path(source_path).name or doc_hash[:12])
         nodes: Dict[str, GraphNodeRecord] = {}

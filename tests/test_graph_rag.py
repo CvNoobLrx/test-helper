@@ -1,9 +1,11 @@
 from pathlib import Path
 
+from src.core.types import Document
 from src.core.query_engine.hybrid_search import HybridSearch, HybridSearchConfig
 from src.core.types import RetrievalResult
 from src.core.query_engine.graph_retriever import GraphRetriever
 from src.ingestion.storage.graph_index import GraphEdgeRecord, GraphIndex, GraphNodeRecord
+from src.ingestion.transform.graph_builder import GraphBuilder
 
 
 def test_graph_index_upsert_search_and_remove(tmp_path: Path):
@@ -82,6 +84,35 @@ def test_graph_retriever_expands_nodes_to_chunks(tmp_path: Path):
 
     assert [result.chunk_id for result in results] == ["chunk1"]
     assert results[0].metadata["retrieval_source"] == "graph"
+
+
+def test_graph_builder_uses_storage_doc_hash_not_loader_doc_id():
+    document = Document(
+        id="doc_abcdef1234567890",
+        text="content",
+        metadata={"source_path": "physics.pdf", "doc_hash": "full_sha256"},
+    )
+
+    nodes, edges = GraphBuilder().build(
+        collection="physics",
+        document=document,
+        doc_hash="full_sha256",
+        chunks=[],
+        vector_id_by_chunk={},
+        knowledge_points=[
+            {
+                "id": "kp1",
+                "text": "牛顿第二定律",
+                "chunk_id": "chunk1",
+                "importance": 3,
+            }
+        ],
+        images=[],
+    )
+
+    assert {node.doc_hash for node in nodes} == {"full_sha256"}
+    assert {(edge.metadata or {}).get("doc_hash") for edge in edges} == {"full_sha256"}
+    assert any(node.id == "document:full_sha256" for node in nodes)
 
 
 def test_hybrid_search_graph_switch_controls_graph_retriever():

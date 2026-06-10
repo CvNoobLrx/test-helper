@@ -554,6 +554,7 @@ class IngestionPipeline:
                 graph_nodes, graph_edges = graph_builder.build(
                     collection=self.collection,
                     document=document,
+                    doc_hash=file_hash,
                     chunks=chunks,
                     vector_id_by_chunk=vector_id_by_chunk,
                     knowledge_points=all_kps,
