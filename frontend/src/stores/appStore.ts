@@ -5,6 +5,7 @@ import type { IngestionProgress, PipelineResult } from "../api/types";
 interface AppState {
   selectedCollection: string;
   sidebarOpen: boolean;
+  enableGraphRag: boolean;
   upload: {
     fileName: string;
     collection: string;
@@ -13,6 +14,7 @@ interface AppState {
     result: PipelineResult | null;
   };
   setCollection: (c: string) => void;
+  setGraphRagEnabled: (enabled: boolean) => void;
   toggleSidebar: () => void;
   startUpload: (fileName: string, collection: string) => void;
   setUploadProgress: (progress: IngestionProgress) => void;
@@ -23,6 +25,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   selectedCollection: "default",
   sidebarOpen: true,
+  enableGraphRag: false,
   upload: {
     fileName: "",
     collection: "default",
@@ -31,6 +34,7 @@ export const useAppStore = create<AppState>((set) => ({
     result: null,
   },
   setCollection: (c) => set({ selectedCollection: c }),
+  setGraphRagEnabled: (enabled) => set({ enableGraphRag: enabled }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   startUpload: (fileName, collection) =>
     set({

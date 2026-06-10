@@ -26,6 +26,7 @@ from src.core.types import ProcessedQuery, RetrievalResult
 if TYPE_CHECKING:
     from src.core.query_engine.dense_retriever import DenseRetriever
     from src.core.query_engine.fusion import RRFFusion
+    from src.core.query_engine.graph_retriever import GraphRetriever
     from src.core.query_engine.query_processor import QueryProcessor
     from src.core.query_engine.sparse_retriever import SparseRetriever
     from src.core.settings import Settings
@@ -75,8 +76,11 @@ class HybridSearchConfig:
     fusion_top_k: int = 10
     enable_dense: bool = True
     enable_sparse: bool = True
+    enable_graph: bool = True
     parallel_retrieval: bool = True
     metadata_filter_post: bool = True
+    graph_top_k: int = 20
+    graph_max_hops: int = 2
 
 
 @dataclass
@@ -95,8 +99,10 @@ class HybridSearchResult:
     results: List[RetrievalResult] = field(default_factory=list)
     dense_results: Optional[List[RetrievalResult]] = None
     sparse_results: Optional[List[RetrievalResult]] = None
+    graph_results: Optional[List[RetrievalResult]] = None
     dense_error: Optional[str] = None
     sparse_error: Optional[str] = None
+    graph_error: Optional[str] = None
     used_fallback: bool = False
     processed_query: Optional[ProcessedQuery] = None
 
@@ -142,6 +148,7 @@ class HybridSearch:
         query_processor: Optional[QueryProcessor] = None,
         dense_retriever: Optional[DenseRetriever] = None,
         sparse_retriever: Optional[SparseRetriever] = None,
+        graph_retriever: Optional[GraphRetriever] = None,
         fusion: Optional[RRFFusion] = None,
         config: Optional[HybridSearchConfig] = None,
     ) -> None:
@@ -163,6 +170,7 @@ class HybridSearch:
         self.query_processor = query_processor
         self.dense_retriever = dense_retriever
         self.sparse_retriever = sparse_retriever
+        self.graph_retriever = graph_retriever
         self.fusion = fusion
         
         # Extract config from settings or use provided/default
@@ -171,6 +179,7 @@ class HybridSearch:
         logger.info(
             f"HybridSearch initialized: dense={self.dense_retriever is not None}, "
             f"sparse={self.sparse_retriever is not None}, "
+            f"graph={self.graph_retriever is not None}, "
             f"config={self.config}"
         )
     
@@ -196,8 +205,11 @@ class HybridSearch:
             fusion_top_k=getattr(retrieval_config, 'fusion_top_k', 10),
             enable_dense=True,
             enable_sparse=True,
+            enable_graph=True,
             parallel_retrieval=True,
             metadata_filter_post=True,
+            graph_top_k=getattr(retrieval_config, 'graph_top_k', 20),
+            graph_max_hops=getattr(retrieval_config, 'graph_max_hops', 2),
         )
     
     def search(
@@ -207,6 +219,7 @@ class HybridSearch:
         filters: Optional[Dict[str, Any]] = None,
         trace: Optional[Any] = None,
         return_details: bool = False,
+        enable_graph: bool = False,
     ) -> List[RetrievalResult] | HybridSearchResult:
         """Perform hybrid search combining Dense and Sparse retrieval.
         
@@ -253,38 +266,57 @@ class HybridSearch:
         merged_filters = self._merge_filters(processed_query.filters, filters)
         
         # Step 2: Run retrievals
-        dense_results, sparse_results, dense_error, sparse_error = self._run_retrievals(
+        dense_results, sparse_results, graph_results, dense_error, sparse_error, graph_error = self._run_retrievals(
             processed_query=processed_query,
             filters=merged_filters,
             trace=trace,
+            enable_graph=enable_graph,
         )
         
         # Step 3: Handle fallback scenarios
         used_fallback = False
         if dense_error and sparse_error:
-            # Both failed - raise error
-            raise RuntimeError(
-                f"Both retrieval paths failed. "
-                f"Dense error: {dense_error}. Sparse error: {sparse_error}"
-            )
+            if graph_results:
+                logger.warning("Dense and sparse retrieval failed, using graph results only")
+                used_fallback = True
+                fused_results = graph_results
+            else:
+                # Both failed - raise error
+                raise RuntimeError(
+                    f"Both retrieval paths failed. "
+                    f"Dense error: {dense_error}. Sparse error: {sparse_error}"
+                )
         elif dense_error:
             # Dense failed, use sparse only
             logger.warning(f"Dense retrieval failed, using sparse only: {dense_error}")
             used_fallback = True
-            fused_results = sparse_results or []
+            fused_results = self._fuse_results(
+                dense_results=[],
+                sparse_results=sparse_results or [],
+                graph_results=graph_results or [],
+                top_k=effective_top_k,
+                trace=trace,
+            )
         elif sparse_error:
             # Sparse failed, use dense only
             logger.warning(f"Sparse retrieval failed, using dense only: {sparse_error}")
             used_fallback = True
-            fused_results = dense_results or []
+            fused_results = self._fuse_results(
+                dense_results=dense_results or [],
+                sparse_results=[],
+                graph_results=graph_results or [],
+                top_k=effective_top_k,
+                trace=trace,
+            )
         elif not dense_results and not sparse_results:
             # Both succeeded but returned empty
-            fused_results = []
+            fused_results = graph_results or []
         else:
             # Step 4: Fuse results
             fused_results = self._fuse_results(
                 dense_results=dense_results or [],
                 sparse_results=sparse_results or [],
+                graph_results=graph_results or [],
                 top_k=effective_top_k,
                 trace=trace,
             )
@@ -303,8 +335,10 @@ class HybridSearch:
                 results=final_results,
                 dense_results=dense_results,
                 sparse_results=sparse_results,
+                graph_results=graph_results,
                 dense_error=dense_error,
                 sparse_error=sparse_error,
+                graph_error=graph_error,
                 used_fallback=used_fallback,
                 processed_query=processed_query,
             )
@@ -358,9 +392,12 @@ class HybridSearch:
         processed_query: ProcessedQuery,
         filters: Optional[Dict[str, Any]],
         trace: Optional[Any],
+        enable_graph: bool,
     ) -> Tuple[
         Optional[List[RetrievalResult]],
         Optional[List[RetrievalResult]],
+        Optional[List[RetrievalResult]],
+        Optional[str],
         Optional[str],
         Optional[str],
     ]:
@@ -378,8 +415,10 @@ class HybridSearch:
         """
         dense_results: Optional[List[RetrievalResult]] = None
         sparse_results: Optional[List[RetrievalResult]] = None
+        graph_results: Optional[List[RetrievalResult]] = None
         dense_error: Optional[str] = None
         sparse_error: Optional[str] = None
+        graph_error: Optional[str] = None
         
         # Determine what to run
         run_dense = (
@@ -391,13 +430,25 @@ class HybridSearch:
             and self.sparse_retriever is not None
             and processed_query.keywords  # Need keywords for sparse
         )
+        run_graph = (
+            enable_graph
+            and self.config.enable_graph
+            and self.graph_retriever is not None
+        )
         
         if not run_dense and not run_sparse:
             # Nothing to run
-            if self.dense_retriever is None and self.sparse_retriever is None:
+            if self.dense_retriever is None and self.sparse_retriever is None and not run_graph:
                 dense_error = "No retriever configured"
                 sparse_error = "No retriever configured"
-            return dense_results, sparse_results, dense_error, sparse_error
+            if run_graph:
+                graph_results, graph_error = self._run_graph_retrieval(
+                    processed_query.original_query,
+                    processed_query.keywords,
+                    filters,
+                    trace,
+                )
+            return dense_results, sparse_results, graph_results, dense_error, sparse_error, graph_error
         
         if self.config.parallel_retrieval and run_dense and run_sparse:
             # Run in parallel
@@ -415,8 +466,15 @@ class HybridSearch:
                 sparse_results, sparse_error = self._run_sparse_retrieval(
                     processed_query.keywords, filters, trace
                 )
+        if run_graph:
+            graph_results, graph_error = self._run_graph_retrieval(
+                processed_query.original_query,
+                processed_query.keywords,
+                filters,
+                trace,
+            )
         
-        return dense_results, sparse_results, dense_error, sparse_error
+        return dense_results, sparse_results, graph_results, dense_error, sparse_error, graph_error
     
     def _run_parallel_retrievals(
         self,
@@ -579,11 +637,45 @@ class HybridSearch:
             error_msg = f"Sparse retrieval error: {e}"
             logger.error(error_msg)
             return None, error_msg
+
+    def _run_graph_retrieval(
+        self,
+        query: str,
+        keywords: List[str],
+        filters: Optional[Dict[str, Any]],
+        trace: Optional[Any],
+    ) -> Tuple[Optional[List[RetrievalResult]], Optional[str]]:
+        """Run graph retrieval with error handling."""
+        if self.graph_retriever is None:
+            return None, "Graph retriever not configured"
+
+        try:
+            results = self.graph_retriever.retrieve(
+                query=query,
+                keywords=keywords,
+                collection=(filters or {}).get("collection"),
+                filters=filters,
+                top_k=self.config.graph_top_k,
+                max_hops=self.config.graph_max_hops,
+                trace=trace,
+            )
+            return results, None
+        except Exception as e:
+            error_msg = f"Graph retrieval error: {e}"
+            logger.error(error_msg)
+            if trace is not None:
+                trace.record_stage("graph_retrieval", {
+                    "method": "graph",
+                    "error": error_msg,
+                    "result_count": 0,
+                })
+            return None, error_msg
     
     def _fuse_results(
         self,
         dense_results: List[RetrievalResult],
         sparse_results: List[RetrievalResult],
+        graph_results: List[RetrievalResult],
         top_k: int,
         trace: Optional[Any],
     ) -> List[RetrievalResult]:
@@ -601,7 +693,7 @@ class HybridSearch:
         if self.fusion is None:
             # Fallback: interleave results (simple round-robin)
             logger.warning("No fusion configured, using simple interleave")
-            return self._interleave_results(dense_results, sparse_results, top_k)
+            return self._interleave_results(dense_results, sparse_results, graph_results, top_k)
         
         # Build ranking lists for RRF
         ranking_lists = []
@@ -609,6 +701,8 @@ class HybridSearch:
             ranking_lists.append(dense_results)
         if sparse_results:
             ranking_lists.append(sparse_results)
+        if graph_results:
+            ranking_lists.append(graph_results)
         
         if not ranking_lists:
             return []
@@ -638,6 +732,7 @@ class HybridSearch:
         self,
         dense_results: List[RetrievalResult],
         sparse_results: List[RetrievalResult],
+        graph_results: List[RetrievalResult],
         top_k: int,
     ) -> List[RetrievalResult]:
         """Simple interleave fallback when no fusion is configured.
@@ -653,8 +748,10 @@ class HybridSearch:
         seen_ids = set()
         interleaved = []
         
-        d_idx, s_idx = 0, 0
-        while len(interleaved) < top_k and (d_idx < len(dense_results) or s_idx < len(sparse_results)):
+        d_idx, s_idx, g_idx = 0, 0, 0
+        while len(interleaved) < top_k and (
+            d_idx < len(dense_results) or s_idx < len(sparse_results) or g_idx < len(graph_results)
+        ):
             # Alternate between dense and sparse
             if d_idx < len(dense_results):
                 r = dense_results[d_idx]
@@ -669,6 +766,16 @@ class HybridSearch:
             if s_idx < len(sparse_results):
                 r = sparse_results[s_idx]
                 s_idx += 1
+                if r.chunk_id not in seen_ids:
+                    seen_ids.add(r.chunk_id)
+                    interleaved.append(r)
+
+            if len(interleaved) >= top_k:
+                break
+
+            if g_idx < len(graph_results):
+                r = graph_results[g_idx]
+                g_idx += 1
                 if r.chunk_id not in seen_ids:
                     seen_ids.add(r.chunk_id)
                     interleaved.append(r)
@@ -757,6 +864,7 @@ def create_hybrid_search(
     query_processor: Optional[QueryProcessor] = None,
     dense_retriever: Optional[DenseRetriever] = None,
     sparse_retriever: Optional[SparseRetriever] = None,
+    graph_retriever: Optional[GraphRetriever] = None,
     fusion: Optional[RRFFusion] = None,
 ) -> HybridSearch:
     """Factory function to create HybridSearch with default components.
@@ -797,5 +905,6 @@ def create_hybrid_search(
         query_processor=query_processor,
         dense_retriever=dense_retriever,
         sparse_retriever=sparse_retriever,
+        graph_retriever=graph_retriever,
         fusion=fusion,
     )

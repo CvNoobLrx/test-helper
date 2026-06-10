@@ -51,6 +51,42 @@ export interface QueryResponse {
   is_empty: boolean;
 }
 
+export interface GraphNode {
+  id: string;
+  type: "knowledge_point" | "concept" | "chapter" | "formula" | "question" | "image" | "document" | string;
+  label: string;
+  importance?: number;
+  chunk_ids?: string[];
+  doc_hash?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: "contains" | "prerequisite_of" | "related_to" | "contrasts_with" | "explains" | "appears_in" | "tests" | string;
+  weight?: number;
+  evidence_chunk_ids?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface GraphStats {
+  node_count: number;
+  edge_count: number;
+  isolated_count: number;
+  updated_at?: string;
+  visible_node_count?: number;
+  visible_edge_count?: number;
+  disabled_document_count?: number;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: GraphStats;
+}
+
 export interface PipelineResult {
   success: boolean;
   file_path: string;

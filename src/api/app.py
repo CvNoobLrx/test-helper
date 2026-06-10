@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
         health,
         collections,
         documents,
+        graph,
         query,
         learning,
         monitoring,
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, tags=["health"])
     app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
     app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+    app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
     app.include_router(query.router, prefix="/api/query", tags=["query"])
     app.include_router(learning.router, prefix="/api/learning", tags=["learning"])
     app.include_router(monitoring.router, prefix="/api/monitoring", tags=["monitoring"])

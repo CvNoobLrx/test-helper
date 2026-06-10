@@ -110,6 +110,7 @@ export async function streamQuery(
   collection: string,
   topK: number,
   enableRerank: boolean,
+  enableGraph: boolean,
   onStage: (stage: { stage: string; message: string }) => void,
   onToken: (text: string) => void,
   onDone: (data: { citations: unknown[]; metadata: unknown }) => void,
@@ -119,7 +120,13 @@ export async function streamQuery(
     const res = await fetch(`${BASE_URL}/query/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, collection, top_k: topK, enable_rerank: enableRerank }),
+      body: JSON.stringify({
+        query,
+        collection,
+        top_k: topK,
+        enable_rerank: enableRerank,
+        enable_graph: enableGraph,
+      }),
     });
 
     if (!res.ok || !res.body) {

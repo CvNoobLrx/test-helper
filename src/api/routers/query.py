@@ -20,6 +20,7 @@ class QueryRequest(BaseModel):
     collection: str = "default"
     top_k: int = 5
     enable_rerank: bool = True
+    enable_graph: bool = False
 
 
 def _citation_to_dict(citation, index: int) -> dict:
@@ -167,6 +168,7 @@ async def retrieve_rag(req: QueryRequest) -> dict:
         query=req.query,
         top_k=req.top_k,
         collection=collection,
+        enable_graph=req.enable_graph,
     )
     citations = [_citation_to_dict(c, i) for i, c in enumerate(response.citations)]
     return {

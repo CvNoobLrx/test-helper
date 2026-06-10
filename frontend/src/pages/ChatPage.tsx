@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, HelpCircle, MessageSquarePlus, Send, Trash2, UserRound } from "lucide-react";
+import { Bot, GitBranch, HelpCircle, MessageSquarePlus, Send, Trash2, UserRound } from "lucide-react";
 import { api, streamQuery } from "../api/client";
 import type { Citation, Collection } from "../api/types";
 import { useAppStore } from "../stores/appStore";
@@ -22,6 +22,8 @@ export function ChatPage() {
 
   const collection = useAppStore((s) => s.selectedCollection);
   const setCollection = useAppStore((s) => s.setCollection);
+  const enableGraphRag = useAppStore((s) => s.enableGraphRag);
+  const setGraphRagEnabled = useAppStore((s) => s.setGraphRagEnabled);
   const {
     sessions,
     activeSessionId,
@@ -120,13 +122,13 @@ export function ChatPage() {
     if (!activeSessionId) createSession(activeCollection);
 
     setInput("");
-    setStatus(enableRerank ? "正在检索资料并筛选重点..." : "正在检索当前科目的资料...");
+    setStatus(enableGraphRag ? "正在检索资料和知识图谱..." : enableRerank ? "正在检索资料并筛选重点..." : "正在检索当前科目的资料...");
     addMessage({ id: createId("msg"), role: "user", content: query }, activeCollection);
     addMessage(
       {
         id: createId("msg"),
         role: "assistant",
-        content: enableRerank ? "正在检索资料并筛选重点..." : "正在检索当前科目的资料...",
+        content: enableGraphRag ? "正在检索资料和知识图谱..." : enableRerank ? "正在检索资料并筛选重点..." : "正在检索当前科目的资料...",
         isStreaming: true,
       },
       activeCollection
@@ -140,6 +142,7 @@ export function ChatPage() {
         activeCollection,
         5,
         enableRerank,
+        enableGraphRag,
         (stage) => {
           const message = stage.message || stage.stage;
           setStatus(message);
@@ -283,6 +286,16 @@ export function ChatPage() {
                   </div>
                 </div>
               </div>
+              <label className="flex items-center gap-2 rounded-full border px-2.5 py-1.5">
+                <GitBranch size={14} className={enableGraphRag ? "text-blue-600" : "text-gray-400"} />
+                <span>Graph-RAG</span>
+                <input
+                  type="checkbox"
+                  checked={enableGraphRag}
+                  onChange={(e) => setGraphRagEnabled(e.target.checked)}
+                  disabled={isStreaming}
+                />
+              </label>
               <button
                 onClick={startNewChat}
                 className="rounded-lg border px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 md:hidden"

@@ -64,6 +64,11 @@ TOOL_INPUT_SCHEMA: Dict[str, Any] = {
             "type": "string",
             "description": "Optional collection name to limit the search scope.",
         },
+        "enable_graph": {
+            "type": "boolean",
+            "description": "Enable Graph-RAG retrieval augmentation.",
+            "default": False,
+        },
     },
     "required": ["query"],
 }
@@ -165,9 +170,11 @@ class QueryKnowledgeHubTool:
         from src.core.query_engine.query_processor import QueryProcessor
         from src.core.query_engine.hybrid_search import create_hybrid_search
         from src.core.query_engine.dense_retriever import create_dense_retriever
+        from src.core.query_engine.graph_retriever import GraphRetriever
         from src.core.query_engine.sparse_retriever import create_sparse_retriever
         from src.core.query_engine.reranker import create_core_reranker
         from src.ingestion.storage.bm25_indexer import BM25Indexer
+        from src.ingestion.storage.graph_index import GraphIndex
         from src.libs.embedding.embedding_factory import EmbeddingFactory
         from src.libs.vector_store.vector_store_factory import VectorStoreFactory
         
@@ -203,6 +210,16 @@ class QueryKnowledgeHubTool:
             vector_store=vector_store,
         )
         sparse_retriever.default_collection = collection
+
+        retrieval_config = getattr(self.settings, "retrieval", None)
+        graph_index = GraphIndex(db_path=str(resolve_path("data/db/graph/graph_index.db")))
+        graph_retriever = GraphRetriever(
+            graph_index=graph_index,
+            vector_store=vector_store,
+            default_collection=collection,
+            top_k=getattr(retrieval_config, "graph_top_k", 20),
+            max_hops=getattr(retrieval_config, "graph_max_hops", 2),
+        )
         
         query_processor = QueryProcessor()
         self._hybrid_search = create_hybrid_search(
@@ -210,6 +227,7 @@ class QueryKnowledgeHubTool:
             query_processor=query_processor,
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
+            graph_retriever=graph_retriever,
         )
         
         self._current_collection = collection
@@ -221,6 +239,7 @@ class QueryKnowledgeHubTool:
         query: str,
         top_k: Optional[int] = None,
         collection: Optional[str] = None,
+        enable_graph: bool = False,
     ) -> MCPToolResponse:
         """Execute the query_knowledge_hub tool.
         
@@ -256,6 +275,7 @@ class QueryKnowledgeHubTool:
         trace.metadata["top_k"] = effective_top_k
         trace.metadata["collection"] = effective_collection
         trace.metadata["source"] = "mcp"
+        trace.metadata["enable_graph"] = enable_graph
 
         try:
             # Initialize components for collection
@@ -272,7 +292,7 @@ class QueryKnowledgeHubTool:
             
             # Perform hybrid search (blocking: embedding API + DB queries)
             results = await asyncio.to_thread(
-                self._perform_search, query, effective_top_k, trace,
+                self._perform_search, query, effective_top_k, trace, enable_graph,
             )
             
             # Apply reranking if enabled (may call LLM API)
@@ -319,6 +339,7 @@ class QueryKnowledgeHubTool:
         query: str,
         top_k: int,
         trace: Optional[Any] = None,
+        enable_graph: bool = False,
     ) -> List[RetrievalResult]:
         """Perform hybrid search.
         
@@ -345,6 +366,7 @@ class QueryKnowledgeHubTool:
                 filters=filters,
                 trace=trace,
                 return_details=False,
+                enable_graph=enable_graph,
             )
             return results if isinstance(results, list) else results.results
         except Exception as e:
@@ -472,6 +494,7 @@ async def query_knowledge_hub_handler(
     query: str,
     top_k: int = 5,
     collection: Optional[str] = None,
+    enable_graph: bool = False,
 ) -> types.CallToolResult:
     """Handler function for MCP tool registration.
     
@@ -496,6 +519,7 @@ async def query_knowledge_hub_handler(
             query=query,
             top_k=top_k,
             collection=collection,
+            enable_graph=enable_graph,
         )
         
         # Use to_mcp_content() which handles multimodal (text + images)

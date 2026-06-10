@@ -125,6 +125,7 @@ async def delete_document(doc_id: str, collection: str = "default"):
     result = ds.delete_document(doc_id, collection, source_hash=doc_id)
     removed_kps: list[str] = []
     mastery_removed = 0
+    graph_removed = False
     if chunk_ids:
         try:
             from src.ingestion.storage.knowledge_point_index import KnowledgePointIndex
@@ -139,16 +140,26 @@ async def delete_document(doc_id: str, collection: str = "default"):
         except Exception:
             removed_kps = []
             mastery_removed = 0
+    try:
+        from src.ingestion.storage.graph_index import GraphIndex
+
+        graph_index = GraphIndex(db_path=str(resolve_path("data/db/graph/graph_index.db")))
+        graph_index.remove_document(collection, doc_id)
+        graph_removed = True
+    except Exception:
+        graph_removed = False
     if hasattr(result, "__dict__"):
         from dataclasses import asdict
         payload = asdict(result)
         payload["knowledge_points_deleted"] = len(removed_kps)
         payload["mastery_records_deleted"] = mastery_removed
+        payload["graph_removed"] = graph_removed
         return payload
     return {
         "deleted": True,
         "knowledge_points_deleted": len(removed_kps),
         "mastery_records_deleted": mastery_removed,
+        "graph_removed": graph_removed,
     }
 
 

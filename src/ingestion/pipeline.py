@@ -36,6 +36,7 @@ from src.ingestion.chunking.document_chunker import DocumentChunker
 from src.ingestion.transform.chunk_refiner import ChunkRefiner
 from src.ingestion.transform.metadata_enricher import MetadataEnricher
 from src.ingestion.transform.knowledge_point_extractor import KnowledgePointExtractor
+from src.ingestion.transform.graph_builder import GraphBuilder
 from src.ingestion.embedding.dense_encoder import DenseEncoder
 from src.ingestion.embedding.sparse_encoder import SparseEncoder
 from src.ingestion.embedding.batch_processor import BatchProcessor
@@ -43,6 +44,7 @@ from src.ingestion.storage.bm25_indexer import BM25Indexer
 from src.ingestion.storage.vector_upserter import VectorUpserter
 from src.ingestion.storage.image_storage import ImageStorage
 from src.ingestion.storage.knowledge_point_index import KnowledgePointIndex
+from src.ingestion.storage.graph_index import GraphIndex
 
 logger = get_logger(__name__)
 
@@ -192,6 +194,10 @@ class IngestionPipeline:
             index_dir=str(resolve_path(f"data/db/knowledge_points"))
         )
         logger.info("  ✓ KnowledgePointIndex initialized")
+
+        self.graph_builder = GraphBuilder()
+        self.graph_index = GraphIndex(db_path=str(resolve_path("data/db/graph/graph_index.db")))
+        logger.info("  ✓ GraphIndex initialized")
         
         logger.info("Pipeline initialization complete!")
     
@@ -537,12 +543,37 @@ class IngestionPipeline:
                 if kp_index is not None:
                     kp_index.add_knowledge_points(all_kps, collection=self.collection)
             logger.info(f"      Indexed {len(all_kps)} knowledge points")
+
+            # 6e: Build lightweight Graph-RAG index
+            logger.info("  6e. Graph Index...")
+            graph_nodes = []
+            graph_edges = []
+            graph_index = getattr(self, "graph_index", None)
+            graph_builder = getattr(self, "graph_builder", None)
+            if graph_index is not None and graph_builder is not None:
+                graph_nodes, graph_edges = graph_builder.build(
+                    collection=self.collection,
+                    document=document,
+                    chunks=chunks,
+                    vector_id_by_chunk=vector_id_by_chunk,
+                    knowledge_points=all_kps,
+                    images=images,
+                )
+                graph_index.upsert_document_graph(
+                    collection=self.collection,
+                    doc_hash=file_hash,
+                    nodes=graph_nodes,
+                    edges=graph_edges,
+                )
+            logger.info(f"      Indexed {len(graph_nodes)} graph nodes and {len(graph_edges)} edges")
             
             stages["storage"] = {
                 "vector_count": len(vector_ids),
                 "bm25_docs": len(sparse_stats),
                 "images_indexed": len(images),
                 "knowledge_points_indexed": len(all_kps),
+                "graph_nodes_indexed": len(graph_nodes),
+                "graph_edges_indexed": len(graph_edges),
             }
             _elapsed_storage = (time.monotonic() - _t0_storage) * 1000.0
             if trace is not None:
@@ -585,6 +616,12 @@ class IngestionPipeline:
                         "images": image_storage_details,
                     },
                     "chunk_mapping": chunk_storage,
+                    "graph_store": {
+                        "backend": "SQLite",
+                        "nodes": len(graph_nodes),
+                        "edges": len(graph_edges),
+                        "path": "data/db/graph/graph_index.db",
+                    },
                 }, elapsed_ms=_elapsed_storage)
             
             # ─────────────────────────────────────────────────────────────
@@ -683,6 +720,7 @@ class IngestionPipeline:
             "bm25_postings_removed": 0,
             "images_deleted": 0,
             "knowledge_points_deleted": 0,
+            "graph_removed": False,
             "errors": [],
         }
 
@@ -717,6 +755,14 @@ class IngestionPipeline:
             )
         except Exception as exc:
             result["errors"].append(f"ChromaDB cleanup failed: {exc}")
+
+        try:
+            graph_index = getattr(self, "graph_index", None)
+            if graph_index is not None:
+                graph_index.remove_document(self.collection, file_hash)
+                result["graph_removed"] = True
+        except Exception as exc:
+            result["errors"].append(f"Graph index cleanup failed: {exc}")
 
         try:
             deleted_images = 0
