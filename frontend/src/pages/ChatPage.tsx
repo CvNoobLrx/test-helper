@@ -10,6 +10,19 @@ import { useAppStore } from "../stores/appStore";
 import { useChatStore } from "../stores/chatStore";
 import { createId } from "../utils/id";
 
+function extractCitedIndexes(content: string) {
+  const indexes = new Set<number>();
+  for (const match of content.matchAll(/\[([\d,\s，、]+)\]/g)) {
+    const raw = match[1] || "";
+    raw
+      .split(/[,，、\s]+/)
+      .map((part) => Number(part.trim()))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .forEach((value) => indexes.add(value));
+  }
+  return indexes;
+}
+
 export function ChatPage() {
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("");
@@ -353,8 +366,11 @@ export function ChatPage() {
                           </div>
                         )}
                         {(() => {
+                          const citedIndexes = extractCitedIndexes(msg.content);
                           const validCitations = (msg.citations || []).filter(
                             (c) => c.source || c.text_snippet || c.chunk_id
+                          ).filter(
+                            (c) => citedIndexes.size === 0 ? false : citedIndexes.has(c.index)
                           );
                           if (validCitations.length === 0) return null;
 
